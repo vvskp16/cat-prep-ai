@@ -1,0 +1,6 @@
+openai
+pydantic
+fastapi
+python-multipart
+uvicorn
+aiofiles
