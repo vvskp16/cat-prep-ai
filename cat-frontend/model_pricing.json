@@ -1,0 +1,21 @@
+{
+  "exchange_rate_usd_to_inr": 100,
+  "models": {
+    "gpt-4o-mini": {
+      "input_cost_per_1m": 0.150,
+      "output_cost_per_1m": 0.600
+    },
+    "gpt-5-mini": {
+      "input_cost_per_1m": 0.25,
+      "output_cost_per_1m": 2.00
+    },
+    "gpt-5.4-nano": {
+      "input_cost_per_1m": 0.20,
+      "output_cost_per_1m": 1.25
+    },
+    "gpt-5.4-mini": {
+      "input_cost_per_1m": 0.75,
+      "output_cost_per_1m": 4.50
+    }
+  }
+}

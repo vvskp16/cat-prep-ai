@@ -219,3 +219,6 @@ __marimo__/
 
 # Secrets
 set_envvar.ps1
+
+# chroma db ready files
+chroma_ready_docs/

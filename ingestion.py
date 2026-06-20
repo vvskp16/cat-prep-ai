@@ -1,15 +1,16 @@
 # ingestion.py
 import os
-from typing import List
+from typing import Any, List
 from openai import OpenAI
 from data_models import CATExtractionBatch
 
 client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 def extract_structured_cat_batch(
+    model: str,
     base64_images: List[str], 
     deterministic_ocr_text: str
-) -> CATExtractionBatch:
+) -> tuple:
     
     content_payload = [
         {
@@ -34,22 +35,30 @@ def extract_structured_cat_batch(
             }
         })
 
-    # Updated: Explicit instruction to prevent the 10-duplicate hallucination
+# Updated: Explicit instruction covering anti-duplication, token-saving, and trap analysis
     system_instruction = (
         "You are a psychometric data parser for the CAT exam. Your mission is to map raw input streams "
         "into structured batch arrays. Use visual assets exclusively to map spatial parameters and decode context.\n\n"
-        "ABSOLUTE RULE: Extract ONLY the exact questions present in the source image/text. "
-        "NEVER duplicate a question. If the source contains only 1 question, return an array of length 1."
+        "ABSOLUTE RULES:\n"
+        "1. Extract ONLY the exact questions present in the source image/text. NEVER duplicate a question. "
+        "If the source contains only 1 question, return an array of length 1.\n"
+        "2. DO NOT calculate, invent, or generate solution paths. Leave solution_text blank or extract only what is explicitly written.\n"
+        "3. You MUST analyze the logical premise of the question and classify its primary structural pitfall into the 'trap_type' field "
+        "(e.g., 'double-counting', 'unit-conversion', 'boundary-condition'). Provide exactly ONE dominant trap as a flat string."
+        "4. MATH FORMATTING: You MUST format all mathematical expressions, variables, and equations using standard KaTeX syntax. "
+        "Strictly use single dollar signs for inline math (e.g., $a - 6b + 6c = 4$) and double dollar signs for block math. "
+        "DO NOT use \\( or \\) wrappers."
     )
 
+    # Execute the OpenAI Structured Parse
     completion = client.beta.chat.completions.parse(
-        model="gpt-4o-mini", 
+        model=model,
         messages=[
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": content_payload}
         ],
-        response_format=CATExtractionBatch,
-        temperature=0.0
+        response_format=CATExtractionBatch
     )
     
-    return completion.choices[0].message.parsed
+    # Return both the parsed structure and usage statistics as a tuple
+    return completion.choices[0].message.parsed, completion.usage
