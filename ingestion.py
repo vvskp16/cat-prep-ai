@@ -1,10 +1,15 @@
 # ingestion.py
 import os
 from typing import Any, List
+import httpx
 from openai import OpenAI
 from data_models import CATExtractionBatch
 
-client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+# Initialize the client with SSL verification disabled
+client = OpenAI(
+    api_key=os.environ.get("OPENAI_API_KEY"),
+    http_client=httpx.Client(verify=False) # This bypasses the SSL block
+)
 
 def extract_structured_cat_batch(
     model: str,

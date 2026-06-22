@@ -6,3 +6,5 @@ uvicorn
 aiofiles
 pytesseract
 tesseract
+certifi
+pip-system-certs
