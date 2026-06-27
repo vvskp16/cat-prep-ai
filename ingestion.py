@@ -40,7 +40,7 @@ def extract_structured_cat_batch(
             }
         })
 
-# Updated: Explicit instruction covering anti-duplication, token-saving, and trap analysis
+    # Updated: Explicit instruction covering anti-duplication, token-saving, trap analysis, and difficulty correlation
     system_instruction = (
         "You are a psychometric data parser for the CAT exam. Your mission is to map raw input streams "
         "into structured batch arrays. Use visual assets exclusively to map spatial parameters and decode context.\n\n"
@@ -49,10 +49,13 @@ def extract_structured_cat_batch(
         "If the source contains only 1 question, return an array of length 1.\n"
         "2. DO NOT calculate, invent, or generate solution paths. Leave solution_text blank or extract only what is explicitly written.\n"
         "3. You MUST analyze the logical premise of the question and classify its primary structural pitfall into the 'trap_type' field "
-        "(e.g., 'double-counting', 'unit-conversion', 'boundary-condition'). Provide exactly ONE dominant trap as a flat string."
+        "(e.g., 'double-counting', 'unit-conversion', 'boundary-condition'). Provide exactly ONE dominant trap as a flat string.\n"
         "4. MATH FORMATTING: You MUST format all mathematical expressions, variables, and equations using standard KaTeX syntax. "
         "Strictly use single dollar signs for inline math (e.g., $a - 6b + 6c = 4$) and double dollar signs for block math. "
-        "DO NOT use \\( or \\) wrappers."
+        "DO NOT use \\( or \\) wrappers.\n"
+        "5. DIFFICULTY CONSISTENCY: The 'difficulty' (Literal) and 'difficulty_level' (Float) MUST strictly align. "
+        "Use this exact mapping: 1.0 to 3.9 maps to 'Easy'. 4.0 to 6.9 maps to 'Medium'. 7.0 to 10.0 maps to 'Hard'. "
+        "Do not contradict these values (e.g., you cannot output 'Hard' with a 4.2 rating)."
     )
 
     # Execute the OpenAI Structured Parse

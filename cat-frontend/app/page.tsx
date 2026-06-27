@@ -259,31 +259,92 @@ export default function ExtractionTester() {
               </div>
 
               {/* TOP METADATA LOVs */}
-              <div className="grid grid-cols-4 gap-4 mb-4">
+              <div className="grid grid-cols-5 gap-4 mb-4">
+                
+                {/* 1. Subject */}
                 <div>
                   <label className="block text-xs text-slate-400 uppercase font-bold mb-1">Subject</label>
                   <select value={q.subject} onChange={(e) => updateQuestion(idx, 'subject', e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm focus:outline-none focus:border-teal-400">
                     <option value="Quant">Quant</option><option value="DILR">DILR</option><option value="VARC">VARC</option>
                   </select>
                 </div>
+                
+                {/* 2. Type */}
                 <div>
                   <label className="block text-xs text-slate-400 uppercase font-bold mb-1">Type</label>
                   <select value={q.question_type} onChange={(e) => updateQuestion(idx, 'question_type', e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm focus:outline-none focus:border-teal-400">
                     <option value="MCQ">MCQ</option><option value="TITA">TITA</option>
                   </select>
                 </div>
+                
+                {/* 3. Reactive Deterministic Difficulty Badge */}
                 <div>
                   <label className="block text-xs text-slate-400 uppercase font-bold mb-1">Difficulty</label>
-                  <select value={q.metadata_hooks.difficulty} onChange={(e) => updateMetadata(idx, 'difficulty', e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm focus:outline-none focus:border-teal-400">
-                    <option value="Easy">Easy</option><option value="Medium">Medium</option><option value="Hard">Hard</option>
-                  </select>
+                  <div className={`w-full border rounded p-2 text-sm font-bold text-center transition-colors ${
+                    !q.metadata_hooks.difficulty_level ? "bg-slate-900 border-slate-600 text-slate-500" :
+                    q.metadata_hooks.difficulty_level < 4.0 ? "bg-emerald-900/30 border-emerald-500/50 text-emerald-400" :
+                    q.metadata_hooks.difficulty_level < 7.0 ? "bg-amber-900/30 border-amber-500/50 text-amber-400" :
+                    "bg-rose-900/30 border-rose-500/50 text-rose-400"
+                  }`}>
+                    {!q.metadata_hooks.difficulty_level ? "N/A" :
+                     q.metadata_hooks.difficulty_level < 4.0 ? "Easy" :
+                     q.metadata_hooks.difficulty_level < 7.0 ? "Medium" : "Hard"}
+                  </div>
                 </div>
+                
+                {/* 4. Text-Editable Float Input (No Spinners) */}
+                <div>
+                  <label className="block text-xs text-slate-400 uppercase font-bold mb-1">Diff Level (1-10)</label>
+                  <input 
+                    type="text" 
+                    value={q.metadata_hooks.difficulty_level ?? ''} 
+                    onChange={(e) => {
+                      const rawValue = e.target.value;
+                      
+                      // Safely update multiple state fields simultaneously to prevent overwriting
+                      setQuestions(prevQs => {
+                        const newQs = [...prevQs];
+                        const currentHooks = newQs[idx].metadata_hooks;
+
+                        // Case A: User clears the input entirely
+                        if (rawValue === '') {
+                          newQs[idx] = { 
+                            ...newQs[idx], 
+                            metadata_hooks: { ...currentHooks, difficulty_level: '', difficulty: 'N/A' } 
+                          };
+                          return newQs;
+                        }
+
+                        // Case B: User types a valid number or decimal
+                        if (/^\d*\.?\d*$/.test(rawValue)) {
+                          const val = parseFloat(rawValue);
+                          // Determine the text category, or keep the current one if they just typed a lone decimal point "."
+                          const cat = isNaN(val) ? currentHooks.difficulty : (val < 4.0 ? "Easy" : val < 7.0 ? "Medium" : "Hard");
+
+                          newQs[idx] = { 
+                            ...newQs[idx], 
+                            metadata_hooks: { ...currentHooks, difficulty_level: rawValue, difficulty: cat } 
+                          };
+                          return newQs;
+                        }
+
+                        // Case C: Invalid input (e.g. letters), ignore keystroke
+                        return newQs;
+                      });
+                    }} 
+                    className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm focus:outline-none focus:border-teal-400"
+                    placeholder="1-10 with increments of 0.1"
+                  />
+                </div>
+
+                {/* 5. Calc Intensity */}
                 <div>
                   <label className="block text-xs text-slate-400 uppercase font-bold mb-1">Calc Intensity</label>
                   <select value={q.metadata_hooks.calculation_intensity} onChange={(e) => updateMetadata(idx, 'calculation_intensity', e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm focus:outline-none focus:border-teal-400">
                     <option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High</option>
                   </select>
                 </div>
+                
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-4">
@@ -297,16 +358,13 @@ export default function ExtractionTester() {
                 </div>
               </div>
 
-{/* REPLACED: Question Prompt uses MarkdownEditor */}
               <MarkdownEditor 
                 label="Question Prompt" 
                 value={q.question_text || ''} 
                 onChange={(val) => updateQuestion(idx, 'question_text', val)} 
               />
 
-              {/* --------------------------------------------------- */}
-              {/* NEW: OPTIONS GRID (Only visible for MCQs)             */}
-              {/* --------------------------------------------------- */}
+              {/* OPTIONS GRID (Only visible for MCQs) */}
               {q.question_type === "MCQ" && (
                 <div className="mb-4 bg-slate-900/40 p-4 rounded-lg border border-slate-700/50">
                   <label className="block text-xs text-slate-400 uppercase font-bold mb-3">Multiple Choice Options</label>
@@ -336,7 +394,6 @@ export default function ExtractionTester() {
                   </div>
                 </div>
               )}
-              {/* --------------------------------------------------- */}
 
               <div className="grid grid-cols-2 gap-4 mb-4 mt-4">
                 <div>
@@ -358,7 +415,6 @@ export default function ExtractionTester() {
                 />
               </div>
 
-              {/* ADDED: Solution Derivation Field with MarkdownEditor */}
               <MarkdownEditor 
                 label="Solution Derivation (Optional)" 
                 value={q.solution_text || ''} 
