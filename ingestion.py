@@ -73,24 +73,40 @@ def extract_structured_cat_batch(
     return completion.choices[0].message.parsed, completion.usage
 
 
-def enrich_scraped_json_batch(model: str, scraped_json_data: dict) -> tuple:
-    
+# ingestion.py
+
+def enrich_scraped_json_batch(model: str, scraped_json_data: dict, base64_images: List[str]) -> tuple:
     content_payload = [
         {
             "type": "text",
-            "text": f"### RAW SCRAPED JSON ###\n{json.dumps(scraped_json_data, indent=2)}"
+            "text": f"### RAW SCRAPED JSON BATCH ###\n{json.dumps(scraped_json_data, indent=2)}"
         }
     ]
 
+    for b64_str in base64_images:
+        content_payload.append({
+            "type": "image_url",
+            "image_url": {
+                "url": f"data:image/png;base64,{b64_str}",
+                "detail": "high"
+            }
+        })
+
     system_instruction = (
-        "You are an AI data enricher for the CAT exam. You will be provided with a perfectly extracted JSON payload "
-        "containing questions, options, solutions, and image references.\n\n"
+        "You are an expert AI data enricher for the CAT exam. You are provided with a scraped JSON data batch "
+        "and its workspace diagrams for reference.\n\n"
         "ABSOLUTE RULES:\n"
-        "1. DATA INTEGRITY: You MUST copy `question_text`, `options`, `correct_answer`, `solution_text`, and all image/source arrays "
-        "EXACTLY as they appear in the provided JSON. Do NOT modify, calculate, or hallucinate a single character of these fields.\n"
-        "2. METADATA GENERATION: Your sole job is to analyze the provided text and intelligently generate the missing fields: "
-        "`subject`, `topic`, `sub_topic`, `metadata_hooks` (trap_type, difficulty_level, calculation_intensity), and `semantic_keywords`.\n"
-        "3. Keep the `batch_type` and `parent_context` exactly as provided in the source JSON."
+        "1. Your sole task is to analyze the problems and generate the missing psychometric tags.\n"
+        "2. Do NOT copy or re-emit question texts, solutions, choices, or passages.\n"
+        "3. You MUST output exactly one metadata block per question matching the array order and length of the input.\n"
+        "4. DO NOT calculate, invent, or generate solution paths. Leave solution_text blank or extract only what is explicitly written.\n"
+        "5. You MUST analyze the logical premise of the question and classify its primary structural pitfall into the 'trap_type' field "
+        "(e.g., 'double-counting', 'unit-conversion', 'boundary-condition'). Provide exactly ONE dominant trap as a flat string.\n"
+        "6. DIFFICULTY CONSISTENCY: The 'difficulty' (Literal) and 'difficulty_level' (Float) MUST strictly align. "
+        "Use this exact mapping: 1.0 to 3.9 maps to 'Easy'. 4.0 to 6.9 maps to 'Medium'. 7.0 to 10.0 maps to 'Hard'. "
+        "Do not contradict these values (e.g., you cannot output 'Hard' with a 4.2 rating)."
+        "7. The numbers of questions in the output MUST match the input. "
+        "Example: If the input has 4 questions, the output must have 4 metadata objects."
     )
 
     completion = client.beta.chat.completions.parse(
@@ -99,7 +115,7 @@ def enrich_scraped_json_batch(model: str, scraped_json_data: dict) -> tuple:
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": content_payload}
         ],
-        response_format=CATExtractionBatch
+        response_format=LLMBatchEnrichment
     )
     
     return completion.choices[0].message.parsed, completion.usage
