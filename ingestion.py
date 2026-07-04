@@ -4,7 +4,7 @@ from typing import Any, List
 import httpx
 import json
 from openai import OpenAI
-from data_models import CATExtractionBatch
+from data_models import CATExtractionBatch, LLMBatchEnrichment
 
 # Initialize the client with SSL verification disabled
 client = OpenAI(
@@ -66,7 +66,7 @@ def extract_structured_cat_batch(
             {"role": "system", "content": system_instruction},
             {"role": "user", "content": content_payload}
         ],
-        response_format=CATExtractionBatch
+        response_format=LLMBatchEnrichment
     )
     
     # Return both the parsed structure and usage statistics as a tuple

@@ -1,5 +1,5 @@
 # data_models.py
-from typing import List, Optional, Literal, Dict, Any
+from typing import List, Optional, Literal, Dict, Any, Union
 from pydantic import BaseModel, Field, model_validator
 
 class OriginalSource(BaseModel):
@@ -67,12 +67,102 @@ class CATExtractionBatch(BaseModel):
     parent_context: Optional[ParentContext] = None
     questions: List[CATUnifiedQuestion]
 
+
+# 1. Define the Absolute CAT Taxonomy
+from typing import List, Literal
+
+# --- SUBJECT: QUANTITATIVE APTITUDE ---
+Quant_Topics = Literal[
+    "Arithmetic", "Algebra", "Geometry & Mensuration", 
+    "Number System", "Modern Math"
+]
+Quant_SubTopics = Literal[
+    # Arithmetic
+    "Percentages", "Profit, Loss & Discount", "Simple & Compound Interest",
+    "Ratio, Proportion & Variation", "Averages", "Mixtures & Alligations",
+    "Time & Work", "Time, Speed & Distance",
+    # Algebra
+    "Linear Equations", "Quadratic Equations", "Higher Degree Polynomials",
+    "Inequalities", "Logarithms", "Functions & Graphs", "Maxima & Minima",
+    # Geometry & Mensuration
+    "Lines & Angles", "Triangles", "Circles", "Quadrilaterals & Polygons",
+    "Coordinate Geometry", "Mensuration (2D & 3D)", "Trigonometry",
+    # Number System
+    "Factors & Multiples (LCM/HCF)", "Remainders & Divisibility",
+    "Base Systems", "Digits & Properties", 
+    # Modern Math
+    "Permutations & Combinations", "Probability", 
+    "Sequence & Series (AP/GP/HP)", "Set Theory",
+    # Escape Hatch
+    "Miscellaneous Quant"
+]
+
+
+# --- SUBJECT: DATA INTERPRETATION & LOGICAL REASONING ---
+DILR_Topics = Literal[
+    "Data Interpretation", "Logical Reasoning", "DI-LR Hybrid"
+]
+DILR_SubTopics = Literal[
+    # Data Interpretation
+    "Data Tables", "Bar Graphs", "Line Charts", "Pie Charts", 
+    "Scatter Plots & Bubble Charts", "Radar/Spider Web Charts", 
+    "Caselets (Paragraph DI)", "Missing Data DI",
+    # Logical Reasoning
+    "Linear Arrangement", "Circular/Polygon Arrangement",
+    "Matrix & Grid Puzzles", "Blood Relations", "Direction Sense",
+    "Syllogisms & Logic Gates", "Cubes & Dices", "Cryptarithmetic",
+    # Advanced / Hybrid
+    "Games & Tournaments", "Routes & Networks", "Scheduling", 
+    "Optimization & Max/Min", "Venn Diagrams (Multi-set)",
+    # Escape Hatch
+    "Miscellaneous DILR"
+]
+
+
+# --- SUBJECT: VERBAL ABILITY & READING COMPREHENSION ---
+VARC_Topics = Literal[
+    "Reading Comprehension", "Verbal Ability"
+]
+VARC_SubTopics = Literal[
+    # Reading Comprehension (Question Types)
+    "Main Idea / Central Theme", "Specific Detail / Fact Based",
+    "Inference / Implication", "Tone / Attitude of Author",
+    "Structure / Organization", "Application of Idea", 
+    "Philosophy & Humanities",
+    "Psychology & Sociology",
+    "Science & Technology",
+    "History & Political Science",
+    "Ecology & Environment",
+    "Business & Economics",
+    "Art, Literature & Culture",
+    "Zoology & Biology",
+    "Miscellaneous RC",
+    # Verbal Ability
+    "Para Jumbles (TITA)", "Para Jumbles (MCQ)",
+    "Odd Sentence Out", "Para Summary", "Para Completion",
+    "Grammar & Usage", "Vocabulary & Context",
+    # Escape Hatch
+    "Miscellaneous VA"
+]
+
+# Combine them for the master model
+All_Topics = Union[Quant_Topics, DILR_Topics, VARC_Topics]
+All_SubTopics = Union[Quant_SubTopics, DILR_SubTopics, VARC_SubTopics]
+
+# 2. Enforce it in the LLM Payload
 class LLMQuestionMetadata(BaseModel):
     subject: Literal["Quant", "DILR", "VARC"]
-    topic: str = Field(description="Generate the high-level topic (e.g., Arithmetic, Logical Reasoning)")
-    sub_topic: str = Field(description="Generate the specific sub-topic")
+    
+    # The LLM is now FORCED to pick exactly one of these strings. No drift is possible.
+    topic: All_Topics 
+    sub_topic: All_SubTopics 
+    
     metadata_hooks: MetadataHooks
-    semantic_keywords: List[str] = Field(description="Extract 3-5 core mathematical/logical concepts.")
+    
+    # We leave this as an open string so the LLM can capture nuanced variations
+    semantic_keywords: List[str] = Field(
+        description="Extract 3-5 specific keywords from the problem (e.g., 'Trains', 'Relative Speed', 'Upstream')."
+    )
 
 class LLMBatchEnrichment(BaseModel):
     question_metadata_list: List[LLMQuestionMetadata] = Field(
