@@ -2,6 +2,7 @@
 import os
 from typing import Any, List
 import httpx
+import json
 from openai import OpenAI
 from data_models import CATExtractionBatch
 
@@ -69,4 +70,36 @@ def extract_structured_cat_batch(
     )
     
     # Return both the parsed structure and usage statistics as a tuple
+    return completion.choices[0].message.parsed, completion.usage
+
+
+def enrich_scraped_json_batch(model: str, scraped_json_data: dict) -> tuple:
+    
+    content_payload = [
+        {
+            "type": "text",
+            "text": f"### RAW SCRAPED JSON ###\n{json.dumps(scraped_json_data, indent=2)}"
+        }
+    ]
+
+    system_instruction = (
+        "You are an AI data enricher for the CAT exam. You will be provided with a perfectly extracted JSON payload "
+        "containing questions, options, solutions, and image references.\n\n"
+        "ABSOLUTE RULES:\n"
+        "1. DATA INTEGRITY: You MUST copy `question_text`, `options`, `correct_answer`, `solution_text`, and all image/source arrays "
+        "EXACTLY as they appear in the provided JSON. Do NOT modify, calculate, or hallucinate a single character of these fields.\n"
+        "2. METADATA GENERATION: Your sole job is to analyze the provided text and intelligently generate the missing fields: "
+        "`subject`, `topic`, `sub_topic`, `metadata_hooks` (trap_type, difficulty_level, calculation_intensity), and `semantic_keywords`.\n"
+        "3. Keep the `batch_type` and `parent_context` exactly as provided in the source JSON."
+    )
+
+    completion = client.beta.chat.completions.parse(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_instruction},
+            {"role": "user", "content": content_payload}
+        ],
+        response_format=CATExtractionBatch
+    )
+    
     return completion.choices[0].message.parsed, completion.usage

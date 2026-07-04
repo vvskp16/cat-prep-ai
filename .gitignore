@@ -225,3 +225,4 @@ chroma_ready_docs/
 cat-frontend/public/images/
 dev_scripts/extraction/extracted_images/
 dev_scripts/extraction/extracted_json/
+dev_scripts/extraction/raw_html/

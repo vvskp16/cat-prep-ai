@@ -68,7 +68,7 @@ export default function ExtractionTester() {
   // Token, Cost & Model Selection State
   const [tokenStats, setTokenStats] = useState({ input: 0, output: 0 });
   const [costInr, setCostInr] = useState(0);
-  const [selectedModel, setSelectedModel] = useState<string>("gpt-4o-mini");
+  const [selectedModel, setSelectedModel] = useState<string>("gpt-5.4-mini");
 
   // Panel Resizing State
   const [leftWidth, setLeftWidth] = useState(35); // Initial percentage
@@ -119,7 +119,7 @@ export default function ExtractionTester() {
 
   // Live Cost Recalculator
   useEffect(() => {
-    const modelRates = pricingConfig.models[selectedModel as keyof typeof pricingConfig.models] || pricingConfig.models["gpt-4o-mini"];
+    const modelRates = pricingConfig.models[selectedModel as keyof typeof pricingConfig.models] || pricingConfig.models["gpt-5.4-mini"];
     const inputCostUsd = (tokenStats.input / 1000000) * modelRates.input_cost_per_1m;
     const outputCostUsd = (tokenStats.output / 1000000) * modelRates.output_cost_per_1m;
     

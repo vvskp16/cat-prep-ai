@@ -6,11 +6,11 @@ import base64
 import json
 from datetime import datetime
 import aiofiles
-from fastapi import FastAPI, Form, UploadFile, File
+from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pytesseract
 from data_models import CATExtractionBatch, CATUnifiedQuestion
-from ingestion import extract_structured_cat_batch
+from ingestion import enrich_scraped_json_batch, extract_structured_cat_batch
 from PIL import Image
 
 app = FastAPI(title="CAT Prep API")
@@ -35,7 +35,7 @@ os.makedirs(CHROMA_DOCS_DIR, exist_ok=True)
 @app.post("/api/test-extraction")
 async def extract_test_data(
     file: UploadFile = File(...),
-    model: str = Form("gpt-4o-mini") # <--- Add this form parameter
+    model: str = Form("gpt-5.4-mini") # <--- Add this form parameter
 ):
     # 1. Read file into memory
     image_bytes = await file.read()
@@ -101,3 +101,60 @@ async def approve_and_save_document(question_data: dict):
         json.dump(question_data, f, indent=4)
         
     return {"status": "Success", "saved_path": file_path, "id": question_id}
+
+# api.py (Add this endpoint for your scraped JSON batches)
+@app.post("/api/enrich-batch")
+async def enrich_batch_data(
+    payload: dict,  # The deterministic JSON from your scraper
+    model: str = "gpt-5.4-mini"
+):
+    # 1. Ask the LLM ONLY for the metadata tags
+    llm_metadata_batch, token_usage = enrich_scraped_json_batch(
+        model=model,
+        scraped_json_data=payload
+    )
+
+    # 2. Guardrail: Ensure LLM returned metadata for every question
+    if len(llm_metadata_batch.question_metadata_list) != len(payload.get("questions", [])):
+        raise HTTPException(status_code=500, detail="LLM Array Mismatch: The LLM did not return the correct number of metadata objects.")
+
+    # 3. Zip and Merge
+    final_batch = payload.copy()
+    
+    # Setup shared context for SETs
+    shared_context_id = None
+    if final_batch.get("batch_type") == "SET" and final_batch.get("parent_context"):
+        shared_context_id = f"CTX_{uuid.uuid4().hex[:8].upper()}"
+        final_batch["parent_context"]["context_id"] = shared_context_id
+
+    # Iterate through the deterministic questions and inject the AI metadata
+    for idx, question in enumerate(final_batch["questions"]):
+        # Grab the corresponding AI metadata object and convert to dict
+        ai_meta = llm_metadata_batch.question_metadata_list[idx].model_dump()
+        
+        # Merge AI tags directly into the question dictionary
+        question.update(ai_meta)
+        
+        # Inject backend identifiers
+        question["id"] = f"Q_{question['subject'].upper()}_{uuid.uuid4().hex[:8].upper()}"
+        
+        if shared_context_id:
+            question["has_parent_context"] = True
+            question["parent_context"] = final_batch["parent_context"]
+        else:
+            question["has_parent_context"] = False
+
+    # 4. Final Safety Check: Validate the merged object against your strict global schema
+    try:
+        validated_batch = CATExtractionBatch(**final_batch)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Final Schema Validation Failed: {str(e)}")
+
+    return {
+        "enriched_batch": validated_batch.model_dump(),
+        "usage": {
+            "prompt_tokens": token_usage.prompt_tokens,
+            "completion_tokens": token_usage.completion_tokens,
+            "total_tokens": token_usage.total_tokens
+        }
+    }
