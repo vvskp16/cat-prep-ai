@@ -222,3 +222,6 @@ set_envvar.ps1
 
 # chroma db ready files
 chroma_ready_docs/
+cat-frontend/public/images/
+dev_scripts/extraction/extracted_images/
+dev_scripts/extraction/extracted_json/
