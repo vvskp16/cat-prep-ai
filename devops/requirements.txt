@@ -8,3 +8,5 @@ pytesseract
 tesseract
 certifi
 pip-system-certs
+beautifulsoup4
+requests
