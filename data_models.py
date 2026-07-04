@@ -66,3 +66,15 @@ class CATExtractionBatch(BaseModel):
     batch_type: Literal["STANDALONE", "SET"]
     parent_context: Optional[ParentContext] = None
     questions: List[CATUnifiedQuestion]
+
+class LLMQuestionMetadata(BaseModel):
+    subject: Literal["Quant", "DILR", "VARC"]
+    topic: str = Field(description="Generate the high-level topic (e.g., Arithmetic, Logical Reasoning)")
+    sub_topic: str = Field(description="Generate the specific sub-topic")
+    metadata_hooks: MetadataHooks
+    semantic_keywords: List[str] = Field(description="Extract 3-5 core mathematical/logical concepts.")
+
+class LLMBatchEnrichment(BaseModel):
+    question_metadata_list: List[LLMQuestionMetadata] = Field(
+        description="An array of metadata objects. MUST match the exact order and length of the provided JSON questions array."
+    )
