@@ -14,6 +14,11 @@ import chromadb
 from data_models import CATExtractionBatch, CATUnifiedQuestion, TestGenerationRequest
 from ingestion import enrich_scraped_json_batch, extract_structured_cat_batch
 from PIL import Image
+# api.py
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
+import chromadb
 
 app = FastAPI(title="CAT Prep API")
 
@@ -314,3 +319,112 @@ async def debug_db():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+
+
+# Define the incoming request schema payload
+class SearchRequest(BaseModel):
+    subject: Optional[str] = None
+    topic: Optional[str] = None
+    limit: Optional[int] = 5
+
+@app.post("/api/search")
+async def search_questions(payload: SearchRequest):
+    try:
+        # Initialize your persistent local ChromaDB Client context
+        # Adjust path if your DB folder sits somewhere else
+        client = chromadb.PersistentClient(path="./chroma_db")
+        collection = client.get_collection(name="cat_prep_questions")
+        
+        # 2. Build the metadata where-clause filter dict dynamically
+        where_filter = {}
+        if payload.subject:
+            where_filter["subject"] = payload.subject
+        if payload.topic:
+            where_filter["topic"] = payload.topic
+
+        # Execute query against ChromaDB
+        # Using a blank query text or passing a large limit to grab candidate nodes
+        results = collection.get(
+            where=where_filter if where_filter else None,
+            limit=100 # Pull a wider candidate pool to allow standalone/caselet processing
+        )
+
+        if not results or not results.get("ids"):
+            return []
+
+        # 3. Parse flattened documents back into rich nested objects
+        all_questions = []
+        for i in range(len(results["ids"])):
+            meta = results["metadatas"][i]
+            doc_body = results["documents"][i]
+            
+            # Reconstruct the options dictionary from flat scalar storage keys
+            options_dict = None
+            if meta.get("question_type") == "MCQ":
+                options_dict = {
+                    "A": meta.get("option_A", ""),
+                    "B": meta.get("option_B", ""),
+                    "C": meta.get("option_C", ""),
+                    "D": meta.get("option_D", "")
+                }
+
+            # Reconstruct parent context grouping if flagged
+            parent_context = None
+            if str(meta.get("has_parent_context")).lower() == "true":
+                parent_context = {
+                    "context_id": meta.get("context_id", ""),
+                    "context_type": meta.get("context_type", "table"),
+                    "context_body": meta.get("context_body", "")
+                }
+
+            q_obj = {
+                "id": results["ids"][i],
+                "subject": meta.get("subject"),
+                "question_type": meta.get("question_type"),
+                "topic": meta.get("topic"),
+                "sub_topic": meta.get("sub_topic"),
+                "has_parent_context": str(meta.get("has_parent_context")).lower() == "true",
+                "parent_context": parent_context,
+                "question_text": doc_body,
+                "options": options_dict,
+                "correct_answer": meta.get("correct_answer", ""),
+                "solution_text": meta.get("solution_text", ""),
+                "metadata_hooks": {
+                    "trap_type": meta.get("trap_type", ""),
+                    "difficulty": meta.get("difficulty", "Medium"),
+                    "difficulty_level": float(meta.get("difficulty_level", 5.0)),
+                    "calculation_intensity": meta.get("calculation_intensity", "Medium")
+                }
+            }
+            all_questions.append(q_obj)
+
+        # 4. IMPLEMENT CASELET PROTECTION & INTELLIGENT EXPANSION VECTOR
+        selected_questions = []
+        seen_context_ids = set()
+        
+        # Step A: Pick initial items up to requested base limit target
+        base_pool = all_questions[:payload.limit]
+        
+        # Step B: Scan pool to gather any context identifiers that were touched
+        for q in base_pool:
+            if q["has_parent_context"] and q["parent_context"]:
+                seen_context_ids.add(q["parent_context"]["context_id"])
+
+        # Step C: Hydrate final array — if a context was touched, pull ALL its questions 
+        # to ensure no orphaned items are served to the UI split pane!
+        for q in all_questions:
+            # If the question belongs to a context found in our target sets
+            if q["has_parent_context"] and q["parent_context"]:
+                if q["parent_context"]["context_id"] in seen_context_ids:
+                    if q not in selected_questions:
+                        selected_questions.append(q)
+            # If it's standalone, keep it only if it fits inside our initial window choice
+            else:
+                if len(selected_questions) < payload.limit and q not in selected_questions:
+                    selected_questions.append(q)
+
+        return selected_questions
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Engine retrieval error: {str(e)}")

@@ -6,6 +6,9 @@ import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css'; // CRITICAL: Required for math to render beautifully
 import pricingConfig from '../model_pricing.json'; // Adjust path if needed
 
+// app/page.tsx
+import MathRenderer from './components/MathRenderer';
+
 // --- NEW COMPONENT: Self-contained Edit/Preview Toggle ---
 const MarkdownEditor = ({ label, value, onChange }: { label: string, value: string, onChange: (val: string) => void }) => {
   // Default to 'preview' so the user sees clean math immediately
@@ -247,7 +250,9 @@ export default function ExtractionTester() {
           
           {loading && <div className="text-teal-400 animate-pulse text-lg font-mono">Parsing multi-modal payload...</div>}
           {questions.length === 0 && !loading && <div className="text-slate-500 italic">Awaiting visual extraction...</div>}
-
+          
+          <MathRenderer content={"Test Math: $$6\\sqrt{2}$$"} />
+          
           {questions.map((q, idx) => (
             <div key={q.id} className="bg-slate-800 rounded-xl p-6 border border-slate-600 mb-8 shadow-lg">
               
