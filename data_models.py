@@ -170,3 +170,16 @@ class LLMBatchEnrichment(BaseModel):
     question_metadata_list: List[LLMQuestionMetadata] = Field(
         description="An array of metadata objects. MUST match the exact order and length of the provided JSON questions array."
     )
+
+class TestGenerationRequest(BaseModel):
+    subject: Optional[str] = None       
+    difficulty: Optional[str] = None    
+    topic: Optional[str] = None         
+    sub_topic: Optional[str] = None     # Granular filtering
+    limit: int = 5                      
+    
+    # Time configuration for the test session
+    time_limit_minutes: Optional[int] = None # For full-test timers (e.g., 40 mins)
+    time_per_question_seconds: Optional[int] = None # For time-boxed drill modes (e.g., 120s hard stop)
+
+    sort_by_difficulty: bool = False # Default to exam-style shuffling

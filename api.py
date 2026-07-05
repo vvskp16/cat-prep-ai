@@ -1,6 +1,7 @@
 # api.py
 import io
 import os
+from random import shuffle
 import uuid
 import base64
 import json
@@ -9,7 +10,8 @@ import aiofiles
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pytesseract
-from data_models import CATExtractionBatch, CATUnifiedQuestion
+import chromadb
+from data_models import CATExtractionBatch, CATUnifiedQuestion, TestGenerationRequest
 from ingestion import enrich_scraped_json_batch, extract_structured_cat_batch
 from PIL import Image
 
@@ -31,6 +33,26 @@ CHROMA_DOCS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "chrom
 
 os.makedirs(FRONTEND_IMAGE_DIR, exist_ok=True)
 os.makedirs(CHROMA_DOCS_DIR, exist_ok=True)
+
+# Initialize ChromaDB client and collection
+import chromadb
+from chromadb.utils import embedding_functions
+import os
+
+# 1. Initialize the OpenAI Embedding Function (Must match ingestion exactly)
+openai_ef = embedding_functions.OpenAIEmbeddingFunction(
+    api_key=os.environ.get("OPENAI_API_KEY"),
+    model_name="text-embedding-3-small" # Or whatever you used during ingestion
+)
+
+# 2. Connect to the local folder
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
+
+# 3. Connect to the EXACT SAME collection name
+collection = chroma_client.get_or_create_collection(
+    name="cat_prep_questions", # MUST MATCH YOUR INGESTION SCRIPT
+    embedding_function=openai_ef
+)
 
 @app.post("/api/test-extraction")
 async def extract_test_data(
@@ -111,7 +133,8 @@ async def enrich_batch_data(
     # 1. Ask the LLM ONLY for the metadata tags
     llm_metadata_batch, token_usage = enrich_scraped_json_batch(
         model=model,
-        scraped_json_data=payload
+        scraped_json_data=payload,
+        base64_images=[]  # Assuming no images for this endpoint
     )
 
     # 2. Guardrail: Ensure LLM returned metadata for every question
@@ -158,3 +181,136 @@ async def enrich_batch_data(
             "total_tokens": token_usage.total_tokens
         }
     }
+
+@app.post("/api/generate-test")
+async def generate_test(req: TestGenerationRequest):
+    try:
+        # 1. Build the Deterministic Metadata Filter
+        conditions = []
+        if req.subject:
+            conditions.append({"subject": req.subject})
+        if req.difficulty:
+            conditions.append({"difficulty": req.difficulty})
+        if req.topic:
+            conditions.append({"topic": req.topic})
+        if req.sub_topic:
+            conditions.append({"sub_topic": req.sub_topic})
+            
+        where_clause = None
+        if len(conditions) == 1:
+            where_clause = conditions[0]
+        elif len(conditions) > 1:
+            where_clause = {"$and": conditions}
+
+        # 2. Fetch a larger pool from ChromaDB to allow for randomization
+        # This is where 'where_clause' is actively used!
+        pool_results = collection.get(
+            where=where_clause if where_clause else None,
+            limit=req.limit * 5
+        )
+        
+        if not pool_results or not pool_results['metadatas']:
+            return {"count": 0, "test_questions": [], "time_config": {}}
+            
+        # 3. Zip and Shuffle the pool
+        zipped_pool = list(zip(
+            pool_results['ids'], 
+            pool_results['metadatas'], 
+            pool_results['documents']
+        ))
+        shuffle(zipped_pool)
+        
+        # 4. Construct the Final Test Payload
+        # This is where 'final_questions' is initialized!
+        final_questions = []
+        seen_q_ids = set()
+        seen_context_ids = set()
+        
+        for q_id, meta, doc in zipped_pool:
+            if len(final_questions) >= req.limit:
+                break 
+                
+            if q_id in seen_q_ids:
+                continue
+                
+            context_id = meta.get("context_id")
+            
+            if context_id:
+                # --- SET HANDLING (DILR / RC) ---
+                if context_id in seen_context_ids:
+                    continue 
+                    
+                seen_context_ids.add(context_id)
+                
+                set_results = collection.get(where={"context_id": context_id})
+                
+                for sq_id, smeta, sdoc in zip(set_results['ids'], set_results['metadatas'], set_results['documents']):
+                    if sq_id not in seen_q_ids:
+                        final_questions.append({
+                            "id": sq_id,
+                            "document": sdoc,
+                            "metadata": smeta
+                        })
+                        seen_q_ids.add(sq_id)
+            else:
+                # --- STANDALONE HANDLING ---
+                final_questions.append({
+                    "id": q_id,
+                    "document": doc,
+                    "metadata": meta
+                })
+                seen_q_ids.add(q_id)
+
+        # 5. Optional: Sort the final selected questions by difficulty
+        if getattr(req, "sort_by_difficulty", False):
+            # Sorts using the float value we ingested. Fallback to 5.0 if missing.
+            final_questions.sort(key=lambda q: float(q["metadata"].get("difficulty_level", 5.0)))
+
+        return {
+            "count": len(final_questions),
+            "test_questions": final_questions,
+            "time_config": {
+                "total_time_minutes": req.time_limit_minutes,
+                "time_per_question_seconds": req.time_per_question_seconds
+            }
+        }
+    
+        # Return the payload cleanly to the frontend
+        return {
+            "count": len(final_questions),
+            "test_questions": final_questions,
+            "time_config": {
+                "total_time_minutes": req.time_limit_minutes,
+                "time_per_question_seconds": req.time_per_question_seconds
+            }
+        }
+
+    except Exception as e:
+        print(f"Error generating test: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/debug-db")
+async def debug_db():
+    try:
+        # Get total number of items in the database
+        total_count = collection.count()
+        
+        if total_count == 0:
+            return {
+                "status": "EMPTY",
+                "message": "ChromaDB is completely empty! You need to run your ingestion script."
+            }
+            
+        # If it has data, peek at the very first item to check the exact metadata schema
+        sample = collection.peek(1)
+        return {
+            "status": "HAS_DATA",
+            "total_questions_in_db": total_count,
+            "sample_metadata": sample['metadatas'][0] if sample['metadatas'] else None
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
