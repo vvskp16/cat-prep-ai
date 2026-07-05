@@ -1,124 +1,124 @@
-# batch_enricher.py
+# ingest_extracted_cat_papers.py
 import os
 import json
-import base64
-import uuid
+import chromadb
+from chromadb.utils import embedding_functions
 from pathlib import Path
-from data_models import CATExtractionBatch
-from ingestion import enrich_scraped_json_batch
 
-# Directory Configurations
-SOURCE_JSON_DIR = Path("./dev_scripts/extraction/extracted_json")
-IMAGE_DIR = Path("./cat-frontend/public")
-OUTPUT_DIR = Path("./chroma_ready_docs")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+# Config Paths
+INPUT_DIR = Path("./chroma_ready_docs")
+CHROMA_DB_DIR = Path("./chroma_db")
 
-MAX_RETRIES = 3
+def flatten_metadata(question: dict, batch_type: str) -> dict:
+    """
+    ChromaDB metadata requires strictly flat key-value pairs (str, int, float, bool).
+    Nested dicts and complex lists are flattened here for vector filtering.
+    """
+    metadata = {
+        "subject": question.get("subject", ""),
+        "question_type": question.get("question_type", ""),
+        "topic": question.get("topic", ""),
+        "sub_topic": question.get("sub_topic", ""),
+        "has_parent_context": question.get("has_parent_context", False),
+        "batch_type": batch_type,
+        "correct_answer": question.get("correct_answer", ""),
+    }
 
-def encode_image_to_base64(image_path: Path) -> str:
-    try:
-        if image_path.exists():
-            with open(image_path, "rb") as image_file:
-                return base64.b64encode(image_file.read()).decode('utf-8')
-    except Exception as e:
-        print(f"⚠️ Failed to encode image {image_path}: {e}")
-    return None
+    # 1. Flatten Options
+    options = question.get("options")
+    if options:
+        metadata["option_A"] = options.get("A", "")
+        metadata["option_B"] = options.get("B", "")
+        metadata["option_C"] = options.get("C", "")
+        metadata["option_D"] = options.get("D", "")
 
-def process_local_batch(file_path: Path, model: str = "gpt-4o-mini"):
-    print(f"\n📂 Processing File: {file_path.name}")
-    
-    with open(file_path, "r", encoding="utf-8") as f:
-        payload = json.load(f)
+    # 2. Flatten AI Metadata Hooks
+    hooks = question.get("metadata_hooks", {})
+    metadata["trap_type"] = hooks.get("trap_type", "")
+    metadata["difficulty"] = hooks.get("difficulty", "")
+    metadata["difficulty_level"] = float(hooks.get("difficulty_level", 0.0))
+    metadata["calculation_intensity"] = hooks.get("calculation_intensity", "")
 
-    is_list = isinstance(payload, list)
-    batches_to_process = payload if is_list else [payload]
-    enriched_batches = []
+    # 3. Flatten Parent Context (DILR/RC Sets)
+    context = question.get("parent_context")
+    if context:
+        metadata["context_id"] = context.get("context_id", "")
+        metadata["context_type"] = context.get("context_type", "")
+        metadata["context_images"] = json.dumps(context.get("context_images", []))
 
-    for batch_idx, batch in enumerate(batches_to_process):
-        base64_images = []
+    # 4. Serialize Arrays (Images, Sources, Keywords) into JSON strings
+    metadata["semantic_keywords"] = json.dumps(question.get("semantic_keywords", []))
+    metadata["question_images"] = json.dumps(question.get("question_images", []))
+    metadata["solution_images"] = json.dumps(question.get("solution_images", []))
+    metadata["original_sources"] = json.dumps(question.get("original_sources", []))
 
-        # Gather Parent Context Images
-        if batch.get("parent_context") and "context_images" in batch["parent_context"]:
-            for img_rel_path in batch["parent_context"]["context_images"]:
-                full_path = IMAGE_DIR / img_rel_path.lstrip("/")
-                b64 = encode_image_to_base64(full_path)
-                if b64: base64_images.append(b64)
+    # Clean out any accidental None values
+    return {k: v for k, v in metadata.items() if v is not None}
 
-        # Gather Question Specific Images
-        for q in batch.get("questions", []):
-            for img_rel_path in q.get("question_images", []):
-                full_path = IMAGE_DIR / img_rel_path.lstrip("/")
-                b64 = encode_image_to_base64(full_path)
-                if b64: base64_images.append(b64)
+def main():
+    # 1. Initialize OpenAI Embedding Function (text-embedding-3-small)
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        print("❌ ERROR: OPENAI_API_KEY environment variable is not set.")
+        return
 
-        # --- RETRY LOOP INTEGRATION ---
-        llm_metadata = None
-        usage = None
-        target_q_count = len(batch.get("questions", []))
-        
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                print(f"📡 Querying LLM for Batch {batch_idx} (Attempt {attempt}/{MAX_RETRIES})...")
-                llm_metadata, usage = enrich_scraped_json_batch(
-                    model=model,
-                    scraped_json_data=batch,
-                    base64_images=base64_images
-                )
-                
-                # Check sequence length matching guardrail
-                if len(llm_metadata.question_metadata_list) == target_q_count:
-                    break  # Valid length matched, break retry loop!
-                else:
-                    print(f"⚠️ Attempt {attempt} Mismatch: Expected {target_q_count} blocks, got {len(llm_metadata.question_metadata_list)}.")
-                    llm_metadata = None  # Reset state
-            except Exception as e:
-                print(f"⚠️ Attempt {attempt} Error: {e}")
-                llm_metadata = None
+    openai_ef = embedding_functions.OpenAIEmbeddingFunction(
+        api_key=api_key,
+        model_name="text-embedding-3-small"
+    )
 
-        if not llm_metadata:
-            print(f"❌ Batch {batch_idx} of {file_path.name} failed after {MAX_RETRIES} attempts. Skipping.")
-            continue
+    # 2. Initialize ChromaDB Local Persistent Client
+    client = chromadb.PersistentClient(path=str(CHROMA_DB_DIR))
 
-        # --- Zip & Merge Layer ---
-        shared_context_id = None
-        if batch.get("batch_type") == "SET" and batch.get("parent_context"):
-            shared_context_id = f"CTX_{uuid.uuid4().hex[:8].upper()}"
-            batch["parent_context"]["context_id"] = shared_context_id
+    # 3. Create or Get the Vector Collection
+    collection = client.get_or_create_collection(
+        name="cat_prep_questions",
+        embedding_function=openai_ef,
+        metadata={"hnsw:space": "cosine"} # Best metric for OpenAI embeddings
+    )
 
-        for idx, question in enumerate(batch["questions"]):
-            ai_tags = llm_metadata.question_metadata_list[idx].model_dump()
-            question.update(ai_tags)
+    if not INPUT_DIR.exists():
+        print(f"❌ Source folder not found: {INPUT_DIR.absolute()}")
+        return
 
-            question["id"] = f"Q_{question['subject'].upper()}_{uuid.uuid4().hex[:8].upper()}"
-            question["question_type"] = "MCQ" if question.get("options") else "TITA"
+    # 4. Ingestion Loop
+    for file_path in INPUT_DIR.glob("*.json"):
+        print(f"\n📄 Ingesting {file_path.name}...")
+        with open(file_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        # Handle both arrays of batches and single batch files
+        batches = data if isinstance(data, list) else [data]
+
+        for batch in batches:
+            batch_type = batch.get("batch_type", "STANDALONE")
             
-            if shared_context_id:
-                question["has_parent_context"] = True
-                question["parent_context"] = batch["parent_context"]
-            else:
-                question["has_parent_context"] = False
-                question["parent_context"] = None
+            for q in batch.get("questions", []):
+                q_id = q["id"]
 
-        # Schema Verification Shield
-        try:
-            validated_batch = CATExtractionBatch(**batch)
-            enriched_batches.append(validated_batch.model_dump())
-            print(f"✅ Batch {batch_idx} compiled flawlessly. Tokens: {usage.total_tokens}")
-        except Exception as schema_error:
-            print(f"❌ Final Validation Dropped on batch {batch_idx}: {schema_error}")
+                # 5. Build Semantic Vector Document 
+                # (Inject passage context into the question so the AI can find it semantically)
+                document_text = q.get("question_text", "")
+                if q.get("has_parent_context") and q.get("parent_context"):
+                    passage = q["parent_context"].get("context_body", "")
+                    document_text = f"Context Passage:\n{passage}\n\nQuestion:\n{document_text}"
 
-    if enriched_batches:
-        output_file_path = OUTPUT_DIR / f"enriched_{file_path.name}"
-        with open(output_file_path, "w", encoding="utf-8") as out_f:
-            json.dump(enriched_batches if is_list else enriched_batches[0], out_f, indent=2, ensure_ascii=False)
-        print(f"💾 Stored dataset to: {output_file_path}")
+                # 6. Apply Schema Flattening
+                flat_metadata = flatten_metadata(q, batch_type)
 
-def run_pipeline():
-    print("🚀 Initializing Batch Processing Pipeline...")
-    json_files = list(SOURCE_JSON_DIR.glob("*.json"))
-    for file_path in json_files:
-        process_local_batch(file_path)
-    print("\n🏁 Process Completed!")
+                # 7. Upsert to ChromaDB
+                try:
+                    collection.upsert(
+                        ids=[q_id],
+                        documents=[document_text],
+                        metadatas=[flat_metadata]
+                    )
+                    print(f"  ✅ Upserted {q_id}")
+                except Exception as e:
+                    print(f"  ❌ Failed to upsert {q_id}: {e}")
+
+    print("\n🎉 Vector Database ingestion complete!")
+    print(f"💾 Database saved to: {CHROMA_DB_DIR.absolute()}")
 
 if __name__ == "__main__":
-    run_pipeline()
+    main()

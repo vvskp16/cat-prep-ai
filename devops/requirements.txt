@@ -11,3 +11,4 @@ pip-system-certs
 beautifulsoup4
 requests
 pathlib
+chromadb
