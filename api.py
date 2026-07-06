@@ -25,6 +25,7 @@ app = FastAPI(title="CAT Prep API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -186,7 +187,8 @@ async def enrich_batch_data(
             "total_tokens": token_usage.total_tokens
         }
     }
-@app.get("/api/generate-test")
+
+@app.post("/api/generate-test")
 async def generate_test(
     subject: str,
     limit: int = 5,
@@ -243,14 +245,6 @@ async def debug_db():
         }
     except Exception as e:
         return {"error": str(e)}
-
-import json
-from typing import Optional, List
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-import chromadb
-
-app = FastAPI()
 
 class SearchRequest(BaseModel):
     question_id: Optional[str] = Field(None, description="Unique ID of the question")
