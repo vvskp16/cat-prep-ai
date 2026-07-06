@@ -16,7 +16,7 @@ from ingestion import enrich_scraped_json_batch, extract_structured_cat_batch
 from PIL import Image
 # api.py
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 import chromadb
 
@@ -279,16 +279,6 @@ async def generate_test(req: TestGenerationRequest):
                 "time_per_question_seconds": req.time_per_question_seconds
             }
         }
-    
-        # Return the payload cleanly to the frontend
-        return {
-            "count": len(final_questions),
-            "test_questions": final_questions,
-            "time_config": {
-                "total_time_minutes": req.time_limit_minutes,
-                "time_per_question_seconds": req.time_per_question_seconds
-            }
-        }
 
     except Exception as e:
         print(f"Error generating test: {e}")
@@ -316,50 +306,79 @@ async def debug_db():
     except Exception as e:
         return {"error": str(e)}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+import json
+from typing import Optional, List
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+import chromadb
 
+app = FastAPI()
 
-
-# Define the incoming request schema payload
 class SearchRequest(BaseModel):
-    subject: Optional[str] = None
-    topic: Optional[str] = None
-    limit: Optional[int] = 5
+    question_id: Optional[str] = Field(None, description="Unique ID of the question")
+    subject: Optional[str] = Field(None, description="Broad subject area (e.g., VARC, QA, DILR)")
+    topic: Optional[str] = Field(None, description="High-level topic (e.g., Verbal Ability, Arithmetic)")
+    sub_topic: Optional[str] = Field(None, description="Granular classification (e.g., Odd Sentence Out)")
+    question_type: Optional[str] = Field(None, description="Format type: MCQ or TITA")
+    
+    # Qualitative and Quantitative Difficulty Filters
+    difficulty: Optional[str] = Field(None, description="Qualitative difficulty level: Easy, Medium, Hard")
+    min_difficulty_level: Optional[float] = Field(None, description="Minimum numerical difficulty boundary (inclusive)")
+    max_difficulty_level: Optional[float] = Field(None, description="Maximum numerical difficulty boundary (inclusive)")
+    
+    limit: int = Field(10, description="The targeted base quantity of questions to retrieve")
+
 
 @app.post("/api/search")
 async def search_questions(payload: SearchRequest):
     try:
-        # Initialize your persistent local ChromaDB Client context
-        # Adjust path if your DB folder sits somewhere else
         client = chromadb.PersistentClient(path="./chroma_db")
-        collection = client.get_collection(name="cat_prep_questions")
+        collection = client.get_collection(name="cat_questions")
         
-        # 2. Build the metadata where-clause filter dict dynamically
-        where_filter = {}
+        and_conditions = []
+        
+        # 1. Standard exact matches
+        if payload.question_id:
+            and_conditions.append({"id": payload.question_id})
         if payload.subject:
-            where_filter["subject"] = payload.subject
+            and_conditions.append({"subject": payload.subject})
         if payload.topic:
-            where_filter["topic"] = payload.topic
+            and_conditions.append({"topic": payload.topic})
+        if payload.sub_topic:
+            and_conditions.append({"sub_topic": payload.sub_topic})
+        if payload.question_type:
+            and_conditions.append({"question_type": payload.question_type})
+        if payload.difficulty:
+            and_conditions.append({"difficulty": payload.difficulty})
+
+        # 2. Dynamic Range Queries for numerical difficulty metrics
+        if payload.min_difficulty_level is not None:
+            and_conditions.append({"difficulty_level": {"$gte": payload.min_difficulty_level}})
+        if payload.max_difficulty_level is not None:
+            and_conditions.append({"difficulty_level": {"$lte": payload.max_difficulty_level}})
+
+        # Synthesize into ChromaDB's logical dictionary tree structure
+        where_filter = None
+        if len(and_conditions) == 1:
+            where_filter = and_conditions[0]
+        elif len(and_conditions) > 1:
+            where_filter = {"$and": and_conditions}
 
         # Execute query against ChromaDB
-        # Using a blank query text or passing a large limit to grab candidate nodes
         results = collection.get(
-            where=where_filter if where_filter else None,
-            limit=100 # Pull a wider candidate pool to allow standalone/caselet processing
+            where=where_filter,
+            limit=100
         )
 
         if not results or not results.get("ids"):
             return []
 
-        # 3. Parse flattened documents back into rich nested objects
+        # Parse flattened documents back into rich nested objects
         all_questions = []
         for i in range(len(results["ids"])):
             meta = results["metadatas"][i]
             doc_body = results["documents"][i]
             
-            # Reconstruct the options dictionary from flat scalar storage keys
             options_dict = None
             if meta.get("question_type") == "MCQ":
                 options_dict = {
@@ -369,14 +388,19 @@ async def search_questions(payload: SearchRequest):
                     "D": meta.get("option_D", "")
                 }
 
-            # Reconstruct parent context grouping if flagged
             parent_context = None
             if str(meta.get("has_parent_context")).lower() == "true":
                 parent_context = {
                     "context_id": meta.get("context_id", ""),
-                    "context_type": meta.get("context_type", "table"),
-                    "context_body": meta.get("context_body", "")
+                    "context_type": meta.get("context_type", "passage"),
+                    "context_body": meta.get("context_body", ""),
+                    "context_images": json.loads(meta.get("context_images", "[]"))
                 }
+
+            question_images = json.loads(meta.get("question_images", "[]"))
+            solution_images = json.loads(meta.get("solution_images", "[]"))
+            original_sources = json.loads(meta.get("original_sources", "[]"))
+            semantic_keywords = json.loads(meta.get("semantic_keywords", "[]"))
 
             q_obj = {
                 "id": results["ids"][i],
@@ -386,10 +410,14 @@ async def search_questions(payload: SearchRequest):
                 "sub_topic": meta.get("sub_topic"),
                 "has_parent_context": str(meta.get("has_parent_context")).lower() == "true",
                 "parent_context": parent_context,
-                "question_text": doc_body,
+                "question_text": meta.get("question_text", doc_body), 
+                "question_images": question_images,
                 "options": options_dict,
                 "correct_answer": meta.get("correct_answer", ""),
                 "solution_text": meta.get("solution_text", ""),
+                "solution_images": solution_images,
+                "original_sources": original_sources,
+                "semantic_keywords": semantic_keywords,
                 "metadata_hooks": {
                     "trap_type": meta.get("trap_type", ""),
                     "difficulty": meta.get("difficulty", "Medium"),
@@ -399,27 +427,21 @@ async def search_questions(payload: SearchRequest):
             }
             all_questions.append(q_obj)
 
-        # 4. IMPLEMENT CASELET PROTECTION & INTELLIGENT EXPANSION VECTOR
+        # Caselet Protection Strategy
         selected_questions = []
         seen_context_ids = set()
         
-        # Step A: Pick initial items up to requested base limit target
         base_pool = all_questions[:payload.limit]
         
-        # Step B: Scan pool to gather any context identifiers that were touched
         for q in base_pool:
             if q["has_parent_context"] and q["parent_context"]:
                 seen_context_ids.add(q["parent_context"]["context_id"])
 
-        # Step C: Hydrate final array — if a context was touched, pull ALL its questions 
-        # to ensure no orphaned items are served to the UI split pane!
         for q in all_questions:
-            # If the question belongs to a context found in our target sets
             if q["has_parent_context"] and q["parent_context"]:
                 if q["parent_context"]["context_id"] in seen_context_ids:
                     if q not in selected_questions:
                         selected_questions.append(q)
-            # If it's standalone, keep it only if it fits inside our initial window choice
             else:
                 if len(selected_questions) < payload.limit and q not in selected_questions:
                     selected_questions.append(q)
@@ -427,4 +449,10 @@ async def search_questions(payload: SearchRequest):
         return selected_questions
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Engine retrieval error: {str(e)}")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
