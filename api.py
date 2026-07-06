@@ -186,103 +186,41 @@ async def enrich_batch_data(
             "total_tokens": token_usage.total_tokens
         }
     }
+@app.get("/api/generate-test")
+async def generate_test(
+    subject: str,
+    limit: int = 5,
+    min_diff: float = 1.0,
+    max_diff: float = 10.0,
+    sort: str = "random",
+    topics: str = None
+):
+    # 1. Build ChromaDB Where Clause
+    where_filter = {
+        "$and": [
+            {"subject": {"$eq": subject}},
+            {"difficulty_level": {"$gte": min_diff}},
+            {"difficulty_level": {"$lte": max_diff}}
+        ]
+    }
+    
+    # ... append other filters like topics/traps to where_filter ...
 
-@app.post("/api/generate-test")
-async def generate_test(req: TestGenerationRequest):
-    try:
-        # 1. Build the Deterministic Metadata Filter
-        conditions = []
-        if req.subject:
-            conditions.append({"subject": req.subject})
-        if req.difficulty:
-            conditions.append({"difficulty": req.difficulty})
-        if req.topic:
-            conditions.append({"topic": req.topic})
-        if req.sub_topic:
-            conditions.append({"sub_topic": req.sub_topic})
-            
-        where_clause = None
-        if len(conditions) == 1:
-            where_clause = conditions[0]
-        elif len(conditions) > 1:
-            where_clause = {"$and": conditions}
+    # 2. Fetch from ChromaDB
+    results = collection.get(where=where_filter, limit=50) # Fetch a wider net for sorting
+    
+    # 3. Apply Python-level sorting on the metadata array
+    questions = results["metadatas"]
+    
+    if sort == "asc":
+        questions.sort(key=lambda q: q["difficulty_level"])
+    elif sort == "desc":
+        questions.sort(key=lambda q: q["difficulty_level"], reverse=True)
+    else:
+        shuffle(questions)
 
-        # 2. Fetch a larger pool from ChromaDB to allow for randomization
-        # This is where 'where_clause' is actively used!
-        pool_results = collection.get(
-            where=where_clause if where_clause else None,
-            limit=req.limit * 5
-        )
-        
-        if not pool_results or not pool_results['metadatas']:
-            return {"count": 0, "test_questions": [], "time_config": {}}
-            
-        # 3. Zip and Shuffle the pool
-        zipped_pool = list(zip(
-            pool_results['ids'], 
-            pool_results['metadatas'], 
-            pool_results['documents']
-        ))
-        shuffle(zipped_pool)
-        
-        # 4. Construct the Final Test Payload
-        # This is where 'final_questions' is initialized!
-        final_questions = []
-        seen_q_ids = set()
-        seen_context_ids = set()
-        
-        for q_id, meta, doc in zipped_pool:
-            if len(final_questions) >= req.limit:
-                break 
-                
-            if q_id in seen_q_ids:
-                continue
-                
-            context_id = meta.get("context_id")
-            
-            if context_id:
-                # --- SET HANDLING (DILR / RC) ---
-                if context_id in seen_context_ids:
-                    continue 
-                    
-                seen_context_ids.add(context_id)
-                
-                set_results = collection.get(where={"context_id": context_id})
-                
-                for sq_id, smeta, sdoc in zip(set_results['ids'], set_results['metadatas'], set_results['documents']):
-                    if sq_id not in seen_q_ids:
-                        final_questions.append({
-                            "id": sq_id,
-                            "document": sdoc,
-                            "metadata": smeta
-                        })
-                        seen_q_ids.add(sq_id)
-            else:
-                # --- STANDALONE HANDLING ---
-                final_questions.append({
-                    "id": q_id,
-                    "document": doc,
-                    "metadata": meta
-                })
-                seen_q_ids.add(q_id)
-
-        # 5. Optional: Sort the final selected questions by difficulty
-        if getattr(req, "sort_by_difficulty", False):
-            # Sorts using the float value we ingested. Fallback to 5.0 if missing.
-            final_questions.sort(key=lambda q: float(q["metadata"].get("difficulty_level", 5.0)))
-
-        return {
-            "count": len(final_questions),
-            "test_questions": final_questions,
-            "time_config": {
-                "total_time_minutes": req.time_limit_minutes,
-                "time_per_question_seconds": req.time_per_question_seconds
-            }
-        }
-
-    except Exception as e:
-        print(f"Error generating test: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    # 4. Return exact limited slice to frontend
+    return {"questions": questions[:limit]}
 
 @app.get("/api/debug-db")
 async def debug_db():
