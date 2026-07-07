@@ -272,15 +272,7 @@ export default function ExtractionTester() {
                   </select>
                 </div>
                 
-                {/* 2. Type */}
-                <div>
-                  <label className="block text-xs text-slate-400 uppercase font-bold mb-1">Type</label>
-                  <select value={q.question_type} onChange={(e) => updateQuestion(idx, 'question_type', e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm focus:outline-none focus:border-teal-400">
-                    <option value="MCQ">MCQ</option><option value="TITA">TITA</option>
-                  </select>
-                </div>
-                
-                {/* 3. Reactive Deterministic Difficulty Badge */}
+                {/* 2. Reactive Deterministic Difficulty Badge */}
                 <div>
                   <label className="block text-xs text-slate-400 uppercase font-bold mb-1">Difficulty</label>
                   <div className={`w-full border rounded p-2 text-sm font-bold text-center transition-colors ${
@@ -295,7 +287,7 @@ export default function ExtractionTester() {
                   </div>
                 </div>
                 
-                {/* 4. Text-Editable Float Input (No Spinners) */}
+                {/* 3. Text-Editable Float Input (No Spinners) */}
                 <div>
                   <label className="block text-xs text-slate-400 uppercase font-bold mb-1">Diff Level (1-10)</label>
                   <input 
@@ -340,7 +332,7 @@ export default function ExtractionTester() {
                   />
                 </div>
 
-                {/* 5. Calc Intensity */}
+                {/* 4. Calc Intensity */}
                 <div>
                   <label className="block text-xs text-slate-400 uppercase font-bold mb-1">Calc Intensity</label>
                   <select value={q.metadata_hooks.calculation_intensity} onChange={(e) => updateMetadata(idx, 'calculation_intensity', e.target.value)} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-sm focus:outline-none focus:border-teal-400">

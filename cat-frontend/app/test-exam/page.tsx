@@ -1,7 +1,7 @@
 'use client';
 
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useEffect, useState, Suspense } from 'react';
+import { useEffect, useState, Suspense, useRef } from 'react';
 import ExamEngine, { Question } from '../components/ExamEngine';
 import { generatePracticeTest } from '../lib/api';
 
@@ -10,8 +10,14 @@ function TestExamContent() {
   const router = useRouter();
   const [testPayload, setTestPayload] = useState<Question[] | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Ref lock to prevent React Strict Mode from firing this twice
+  const hasFetched = useRef(false);
 
   useEffect(() => {
+    // Abort if we have already made the API call
+    if (hasFetched.current) return;
+    
     async function initTest() {
       const subject = searchParams.get('subject');
       
@@ -21,29 +27,26 @@ function TestExamContent() {
         return;
       }
 
+      // Lock the fetch so it doesn't trigger again
+      hasFetched.current = true;
+
       try {
         const limit = parseInt(searchParams.get('limit') || '5');
-        const min_diff = parseFloat(searchParams.get('min_diff') || '1.0');
-        const max_diff = parseFloat(searchParams.get('max_diff') || '10.0');
         
-        const topicsStr = searchParams.get('topics');
-        const topics = topicsStr ? topicsStr.split(',') : [];
-        
-        const trapsStr = searchParams.get('trap_type');
-        const trap_type = trapsStr ? trapsStr.split(',') : [];
-        
-        const calcStr = searchParams.get('calculation_intensity');
-        const calculation_intensity = calcStr ? calcStr.split(',') : [];
-
-        const cleanConfig = {
+        // Match the backend Pydantic Schema exactly
+        const cleanConfig: any = {
           subject,
           limit,
-          min_diff,
-          max_diff,
-          ...(topics.length > 0 && { topics }),
-          ...(trap_type.length > 0 && { trap_type }),
-          ...(calculation_intensity.length > 0 && { calculation_intensity })
+          min_difficulty_level: parseFloat(searchParams.get('min_diff') || '1.0'),
+          max_difficulty_level: parseFloat(searchParams.get('max_diff') || '10.0')
         };
+
+        // Extract topics (handle if URL uses 'topics' or 'topic')
+        const topic = searchParams.get('topics') || searchParams.get('topic');
+        if (topic) cleanConfig.topic = topic;
+
+        const sub_topic = searchParams.get('sub_topics') || searchParams.get('sub_topic');
+        if (sub_topic) cleanConfig.sub_topic = sub_topic;
 
         const rawResponse = await generatePracticeTest(cleanConfig);
         if (rawResponse && rawResponse.questions) {

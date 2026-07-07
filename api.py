@@ -197,7 +197,6 @@ class TestGenRequest(BaseModel):
     topic: Optional[str] = None
     sub_topic: Optional[str] = None
     question_type: Optional[str] = None
-
 @app.post("/api/generate-test")
 async def generate_test(payload: TestGenRequest):
     print(f"✅ Successfully received JSON payload: {payload.model_dump()}")
@@ -218,9 +217,9 @@ async def generate_test(payload: TestGenRequest):
     if not results or not results.get("ids"):
         return {"questions": []}
 
-    formatted_questions = []
-    for meta in results["metadatas"][:payload.limit]:
-        # 1. Re-nest the Options Dictionary
+    # 1. Parse all 100 returned items first so we have the siblings available
+    all_parsed = []
+    for meta in results["metadatas"]:
         options_dict = None
         if meta.get("question_type") == "MCQ":
             options_dict = {
@@ -230,23 +229,25 @@ async def generate_test(payload: TestGenRequest):
                 "D": meta.get("option_D", "")
             }
             
-        # 2. Re-nest Parent Context (if it exists)
         parent_context = None
         if str(meta.get("has_parent_context")).lower() == "true":
+            try:
+                ctx_imgs = json.loads(meta.get("context_images", "[]")) if meta.get("context_images") else []
+            except:
+                ctx_imgs = []
+                
             parent_context = {
                 "context_id": meta.get("context_id", ""),
                 "context_type": meta.get("context_type", "passage"),
                 "context_body": meta.get("context_body", ""),
-                "context_images": json.loads(meta.get("context_images", "[]")) if meta.get("context_images") else []
+                "context_images": ctx_imgs
             }
 
-        # ADD THIS: Extract Original Sources safely
         try:
             original_sources = json.loads(meta.get("original_sources", "[]")) if meta.get("original_sources") else []
         except Exception:
             original_sources = []
 
-        # 3. Assemble the rich UI-ready object
         q_obj = {
             "id": meta.get("id"),
             "subject": meta.get("subject"),
@@ -267,9 +268,39 @@ async def generate_test(payload: TestGenRequest):
                 "calculation_intensity": meta.get("calculation_intensity", "Medium")
             }
         }
-        formatted_questions.append(q_obj)
+        all_parsed.append(q_obj)
 
-    return {"questions": formatted_questions}
+    # --- CONTIGUOUS CASELET PROTECTION STRATEGY ---
+    base_pool = all_parsed[:payload.limit]
+    
+    # 2. Identify Target Contexts in strict order
+    target_context_ids = []
+    for q in base_pool:
+        if q.get("has_parent_context") and q.get("parent_context"):
+            ctx_id = q["parent_context"]["context_id"]
+            if ctx_id not in target_context_ids:
+                target_context_ids.append(ctx_id)
+
+    final_questions = []
+    added_ids = set()
+
+    # Step A: Append all sets contiguously (Groups all sibling questions together)
+    for ctx_id in target_context_ids:
+        for q in all_parsed:
+            if q.get("has_parent_context") and q.get("parent_context"):
+                if q["parent_context"]["context_id"] == ctx_id:
+                    if q["id"] not in added_ids:
+                        final_questions.append(q)
+                        added_ids.add(q["id"])
+
+    # Step B: Append the standalone questions strictly from the base pool
+    for q in base_pool:
+        if not q.get("has_parent_context"):
+            if q["id"] not in added_ids:
+                final_questions.append(q)
+                added_ids.add(q["id"])
+
+    return {"questions": final_questions}
 
 @app.get("/api/taxonomy")
 async def get_taxonomy(subject: str):
@@ -454,25 +485,37 @@ async def search_questions(payload: SearchRequest):
             all_questions.append(q_obj)
 
         # Caselet Protection Strategy
-        selected_questions = []
-        seen_context_ids = set()
-        
+        # --- CONTIGUOUS CASELET PROTECTION STRATEGY ---
         base_pool = all_questions[:payload.limit]
         
+        # 1. Identify Target Contexts in Order
+        target_context_ids = []
         for q in base_pool:
-            if q["has_parent_context"] and q["parent_context"]:
-                seen_context_ids.add(q["parent_context"]["context_id"])
+            if q.get("has_parent_context") and q.get("parent_context"):
+                ctx_id = q["parent_context"]["context_id"]
+                if ctx_id not in target_context_ids:
+                    target_context_ids.append(ctx_id)
 
-        for q in all_questions:
-            if q["has_parent_context"] and q["parent_context"]:
-                if q["parent_context"]["context_id"] in seen_context_ids:
-                    if q not in selected_questions:
-                        selected_questions.append(q)
-            else:
-                if len(selected_questions) < payload.limit and q not in selected_questions:
-                    selected_questions.append(q)
+        final_questions = []
+        added_ids = set()
 
-        return selected_questions
+        # Step A: Append all sets contiguously (Groups siblings perfectly)
+        for ctx_id in target_context_ids:
+            for q in all_questions:
+                if q.get("has_parent_context") and q.get("parent_context"):
+                    if q["parent_context"]["context_id"] == ctx_id:
+                        if q["id"] not in added_ids:
+                            final_questions.append(q)
+                            added_ids.add(q["id"])
+
+        # Step B: Append the standalone questions from the base pool
+        for q in base_pool:
+            if not q.get("has_parent_context"):
+                if q["id"] not in added_ids:
+                    final_questions.append(q)
+                    added_ids.add(q["id"])
+
+        return final_questions
 
     except Exception as e:
         import traceback
