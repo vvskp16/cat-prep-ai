@@ -1,198 +1,107 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
-import { useSearchParams } from 'next/navigation';
-import { generatePracticeTest, Question } from '../lib/api';
-import ExamEngine from '../components/ExamEngine';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useEffect, useState, Suspense } from 'react';
+import ExamEngine, { Question } from '../components/ExamEngine';
+import { generatePracticeTest } from '../lib/api';
 
-function PracticeSessionContent() {
+function TestExamContent() {
   const searchParams = useSearchParams();
-
-  // --- Launcher Configuration States (Fallback) ---
-  const [subject, setSubject] = useState<'Quant' | 'DILR' | 'VARC' | ''>('');
-  const [limit, setLimit] = useState<number>(5);
-  const [initialTimeInSeconds, setInitialTimeInSeconds] = useState<number>(2400);
-  
-  // --- Operational Control States ---
+  const router = useRouter();
   const [testPayload, setTestPayload] = useState<Question[] | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  // --- 🚀 NEW: Auto-Trigger from Query Parameters ---
   useEffect(() => {
-    const urlSubject = searchParams.get('subject');
-    
-    // If we detect URL parameters, immediately auto-launch the test
-    if (urlSubject) {
-      setSubject(urlSubject as any);
-      setLimit(parseInt(searchParams.get('limit') || '5'));
-
-      const autoLaunchTest = async () => {
-        setIsLoading(true);
-        setErrorMessage(null);
-
-        try {
-          const config = {
-            subject: searchParams.get('subject') || undefined,
-            limit: parseInt(searchParams.get('limit') || '5', 10),
-            min_difficulty_level: searchParams.get('min_diff') ? parseFloat(searchParams.get('min_diff') as string) : undefined,
-            max_difficulty_level: searchParams.get('max_diff') ? parseFloat(searchParams.get('max_diff') as string) : undefined,
-            topic: searchParams.get('topics') || undefined,
-            sub_topic: searchParams.get('sub_topics') || undefined,
-            question_type: searchParams.get('question_type') || undefined
-          };
-
-          const cleanConfig = Object.fromEntries(
-            Object.entries(config).filter(([_, v]) => v !== undefined)
-          );
-
-          // 🚀 Uses cleanConfig
-          const rawResponse = await generatePracticeTest(cleanConfig);
-          
-          const questionsMatrix = Array.isArray(rawResponse) 
-            ? rawResponse 
-            : rawResponse.questions || [];
-
-          const requestedTimeLimit = searchParams.get('time_limit');
-          const calculatedTimeInSeconds = requestedTimeLimit
-            ? parseInt(requestedTimeLimit, 10) * 60
-            : questionsMatrix.length * 120;
-
-          setInitialTimeInSeconds(calculatedTimeInSeconds);
-
-          if (questionsMatrix.length === 0) {
-            setErrorMessage("No matching questions discovered inside the vector collection matching these filter keys.");
-          } else {
-            setTestPayload(questionsMatrix);
-          }
-        } catch (err: any) {
-          setErrorMessage(err.message || "Network execution breakdown...");
-        } finally {
-          setIsLoading(false);
-        }
-      };
-
-      autoLaunchTest();
-    }
-  }, [searchParams]);
-
-  // Fallback trigger if someone visits /test-exam directly without URL parameters
-  const triggerTestGeneration = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-    setErrorMessage(null);
-
-    try {
-      // 🚀 FIX: Uses { subject, limit } directly from React state, NOT cleanConfig
-      const rawResponse = await generatePracticeTest({ subject, limit });
+    async function initTest() {
+      const subject = searchParams.get('subject');
       
-      const questionsMatrix = Array.isArray(rawResponse) 
-        ? rawResponse 
-        : rawResponse.questions || [];
-        
-      if (questionsMatrix.length === 0) {
-        setErrorMessage("No matching questions discovered...");
-      } else {
-        setTestPayload(questionsMatrix);
+      // Strict Routing: If no subject is passed, bounce them back to Dashboard
+      if (!subject) {
+        router.replace('/');
+        return;
       }
-    } catch (err: any) {
-      setErrorMessage(err.message || "Network execution breakdown...");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
-  // Safe Mode: If test data has been successfully initialized, shift view directly into the active player workspace
-  if (testPayload) {
-    return <ExamEngine initialTestData={testPayload} initialTimeInSeconds={initialTimeInSeconds} />;
+      try {
+        const limit = parseInt(searchParams.get('limit') || '5');
+        const min_diff = parseFloat(searchParams.get('min_diff') || '1.0');
+        const max_diff = parseFloat(searchParams.get('max_diff') || '10.0');
+        
+        const topicsStr = searchParams.get('topics');
+        const topics = topicsStr ? topicsStr.split(',') : [];
+        
+        const trapsStr = searchParams.get('trap_type');
+        const trap_type = trapsStr ? trapsStr.split(',') : [];
+        
+        const calcStr = searchParams.get('calculation_intensity');
+        const calculation_intensity = calcStr ? calcStr.split(',') : [];
+
+        const cleanConfig = {
+          subject,
+          limit,
+          min_diff,
+          max_diff,
+          ...(topics.length > 0 && { topics }),
+          ...(trap_type.length > 0 && { trap_type }),
+          ...(calculation_intensity.length > 0 && { calculation_intensity })
+        };
+
+        const rawResponse = await generatePracticeTest(cleanConfig);
+        if (rawResponse && rawResponse.questions) {
+          setTestPayload(rawResponse.questions);
+        } else {
+          setTestPayload(rawResponse as unknown as Question[]);
+        }
+      } catch (error) {
+        console.error("Failed to generate practice test:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    initTest();
+  }, [searchParams, router]);
+
+  if (loading) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-gray-50 flex-col gap-6">
+        <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        <h2 className="text-2xl font-bold text-gray-700 animate-pulse">Assembling Practice Blueprint...</h2>
+        <p className="text-gray-500">Vector search engine is isolating your target questions.</p>
+      </div>
+    );
   }
 
-  // Render the Fallback / Loading UI
-  return (
-    <div className="min-h-screen bg-slate-900 flex flex-col justify-center items-center px-4 text-white">
-      <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-xl shadow-2xl p-8 transition-all">
-        
-        <div className="text-center mb-8">
-          <div className="h-12 w-12 bg-blue-600 rounded-lg flex items-center justify-center text-xl font-bold mx-auto mb-3 shadow-md">
-            🚀
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            {isLoading ? "Assembling Exam..." : "CAT Prep Test Generator"}
-          </h1>
-          <p className="text-slate-400 text-sm mt-1">
-            {isLoading 
-              ? "Running Semantic Vector Compilation based on your blueprint..." 
-              : "Configure vector space parameters to spin up a custom sectional simulation."}
-          </p>
+  if (!testPayload || testPayload.length === 0) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-gray-50">
+        <div className="text-center">
+           <h2 className="text-xl font-bold text-red-600 mb-2">No Questions Found</h2>
+           <p className="text-gray-600 mb-6">Could not find questions matching your exact filters.</p>
+           <button onClick={() => router.replace('/')} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold">
+             Return to Dashboard
+           </button>
         </div>
-
-        {errorMessage && (
-          <div className="mb-6 p-4 bg-red-900/40 border border-red-700/60 rounded-lg text-sm text-red-200">
-            <span className="font-bold">Execution Trap:</span> {errorMessage}
-          </div>
-        )}
-
-        {/* If it's loading from URL params, hide the form and show a loading spinner */}
-        {isLoading ? (
-          <div className="flex justify-center py-10">
-            <div className="w-10 h-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
-          </div>
-        ) : (
-          <form onSubmit={triggerTestGeneration} className="space-y-5">
-            {/* Target Section Filter Selection Box */}
-            <div>
-              <label className="block text-xs uppercase text-slate-400 font-bold tracking-wider mb-2">
-                Target Subject Section
-              </label>
-              <select
-                value={subject}
-                onChange={(e) => setSubject(e.target.value as any)}
-                className="w-full p-3 bg-slate-950 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 transition font-medium text-slate-200 text-sm"
-              >
-                <option value="">All Fields Mixed (Poly-retrieval)</option>
-                <option value="Quant">Quantitative Aptitude (QA)</option>
-                <option value="DILR">Data Interpretation & Logical Reasoning (DILR)</option>
-                <option value="VARC">Verbal Ability & Reading Comprehension (VARC)</option>
-              </select>
-            </div>
-
-            {/* Base Limit Parameter Config Spinner */}
-            <div>
-              <label className="block text-xs uppercase text-slate-400 font-bold tracking-wider mb-2">
-                Requested Target Count (Base Question Limit)
-              </label>
-              <input
-                type="number"
-                min={1}
-                max={30}
-                value={limit}
-                onChange={(e) => setLimit(parseInt(e.target.value) || 5)}
-                className="w-full p-3 bg-slate-950 border border-slate-700 rounded-lg focus:outline-none focus:border-blue-500 transition font-mono text-slate-200 text-sm"
-              />
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg transition shadow-lg active:scale-98 text-sm uppercase tracking-wider flex justify-center items-center"
-            >
-              Launch Practice Exam Session
-            </button>
-          </form>
-        )}
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <ExamEngine 
+      initialTestData={testPayload} 
+      initialTimeInSeconds={testPayload.length * 120} 
+    />
   );
 }
 
-// Next.js requires components utilizing useSearchParams to be wrapped in a Suspense boundary
-export default function PracticeSessionLauncher() {
+// Next.js requires useSearchParams to be wrapped in a suspense boundary
+export default function TestExamPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-slate-900 flex justify-center items-center">
-        <div className="w-10 h-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+      <div className="flex h-screen w-full items-center justify-center bg-gray-50">
+        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
       </div>
     }>
-      <PracticeSessionContent />
+      <TestExamContent />
     </Suspense>
   );
 }
