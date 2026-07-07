@@ -204,7 +204,7 @@ export default function ExtractionTester() {
         {/* LEFT PANEL: Media View */}
         <div style={{ width: `${leftWidth}%` }} className="flex flex-col h-full overflow-y-auto pr-4 scrollbar-hide">
           <div className="flex justify-between items-center mb-6 shrink-0">
-             <h1 className="text-2xl font-bold text-teal-400">PoC: Extraction</h1>
+             <h1 className="text-2xl font-bold text-teal-400">Extraction</h1>
              <select 
                value={selectedModel} 
                onChange={(e) => setSelectedModel(e.target.value)}
@@ -250,8 +250,6 @@ export default function ExtractionTester() {
           
           {loading && <div className="text-teal-400 animate-pulse text-lg font-mono">Parsing multi-modal payload...</div>}
           {questions.length === 0 && !loading && <div className="text-slate-500 italic">Awaiting visual extraction...</div>}
-          
-          <MathRenderer content={"Test Math: $$6\\sqrt{2}$$"} />
           
           {questions.map((q, idx) => (
             <div key={q.id} className="bg-slate-800 rounded-xl p-6 border border-slate-600 mb-8 shadow-lg">

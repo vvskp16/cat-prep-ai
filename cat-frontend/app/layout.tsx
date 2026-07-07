@@ -35,21 +35,12 @@ export default function RootLayout({
               <Link href="/" className="text-slate-300 hover:text-white transition-colors">
                 Dashboard
               </Link>
-              <Link href="/test-exam" className="text-slate-300 hover:text-white transition-colors">
-                Practice Arena
-              </Link>
               <Link href="/history" className="text-slate-300 hover:text-white transition-colors">
                 Performance History
               </Link>
-            </div>
-
-            {/* ADMIN ROUTE (Discrete) */}
-            <div>
               <Link 
-                href="/admin/ingestion" 
-                className="text-xs font-semibold text-slate-400 border border-slate-700 px-3 py-1.5 rounded hover:bg-slate-800 hover:text-white transition"
-              >
-                Data Ingestion ⚙️
+                href="/admin/ingestion"   className="text-slate-300 hover:text-white transition-colors">
+                Data Ingestion
               </Link>
             </div>
           </div>
