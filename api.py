@@ -198,46 +198,71 @@ class TestGenRequest(BaseModel):
     sub_topic: Optional[str] = None
     question_type: Optional[str] = None
 
-# Pass the model into the endpoint
 @app.post("/api/generate-test")
 async def generate_test(payload: TestGenRequest):
-    
     print(f"✅ Successfully received JSON payload: {payload.model_dump()}")
     
-    # Build your ChromaDB Where Clause using the payload
+    # Build your ChromaDB Where Clause
     and_conditions = []
-    
-    if payload.subject:
-        and_conditions.append({"subject": {"$eq": payload.subject}})
-    if payload.topic:
-        and_conditions.append({"topic": {"$eq": payload.topic}})
-    if payload.min_difficulty_level is not None:
-        and_conditions.append({"difficulty_level": {"$gte": payload.min_difficulty_level}})
-    if payload.max_difficulty_level is not None:
-        and_conditions.append({"difficulty_level": {"$lte": payload.max_difficulty_level}})
+    if payload.subject: and_conditions.append({"subject": {"$eq": payload.subject}})
+    if payload.topic: and_conditions.append({"topic": {"$eq": payload.topic}})
+    if payload.min_difficulty_level is not None: and_conditions.append({"difficulty_level": {"$gte": payload.min_difficulty_level}})
+    if payload.max_difficulty_level is not None: and_conditions.append({"difficulty_level": {"$lte": payload.max_difficulty_level}})
 
     where_filter = None
-    if len(and_conditions) == 1:
-        where_filter = and_conditions[0]
-    elif len(and_conditions) > 1:
-        where_filter = {"$and": and_conditions}
+    if len(and_conditions) == 1: where_filter = and_conditions[0]
+    elif len(and_conditions) > 1: where_filter = {"$and": and_conditions}
 
-    # Fetch from ChromaDB
-    results = collection.get(
-        where=where_filter, 
-        limit=100
-    ) 
+    results = collection.get(where=where_filter, limit=100) 
     
     if not results or not results.get("ids"):
-        return []
+        return {"questions": []}
 
-    # Process your metadatas...
-    questions = results["metadatas"]
-    
-    # (Optional: Add your sorting logic here)
+    formatted_questions = []
+    for meta in results["metadatas"][:payload.limit]:
+        # 1. Re-nest the Options Dictionary
+        options_dict = None
+        if meta.get("question_type") == "MCQ":
+            options_dict = {
+                "A": meta.get("option_A", ""),
+                "B": meta.get("option_B", ""),
+                "C": meta.get("option_C", ""),
+                "D": meta.get("option_D", "")
+            }
+            
+        # 2. Re-nest Parent Context (if it exists)
+        parent_context = None
+        if str(meta.get("has_parent_context")).lower() == "true":
+            parent_context = {
+                "context_id": meta.get("context_id", ""),
+                "context_type": meta.get("context_type", "passage"),
+                "context_body": meta.get("context_body", ""),
+                "context_images": json.loads(meta.get("context_images", "[]")) if meta.get("context_images") else []
+            }
 
-    # 7. Return exact limited slice to frontend
-    return {"questions": questions[:payload.limit]}
+        # 3. Assemble the rich UI-ready object
+        q_obj = {
+            "id": meta.get("id"),
+            "subject": meta.get("subject"),
+            "question_type": meta.get("question_type"),
+            "topic": meta.get("topic"),
+            "sub_topic": meta.get("sub_topic"),
+            "has_parent_context": str(meta.get("has_parent_context")).lower() == "true",
+            "parent_context": parent_context,
+            "question_text": meta.get("question_text", ""),
+            "options": options_dict,
+            "correct_answer": meta.get("correct_answer", ""),
+            "solution_text": meta.get("solution_text", ""),
+            "metadata_hooks": {
+                "trap_type": meta.get("trap_type", ""),
+                "difficulty": meta.get("difficulty", "Medium"),
+                "difficulty_level": float(meta.get("difficulty_level", 5.0)),
+                "calculation_intensity": meta.get("calculation_intensity", "Medium")
+            }
+        }
+        formatted_questions.append(q_obj)
+
+    return {"questions": formatted_questions}
 
 @app.get("/api/taxonomy")
 async def get_taxonomy(subject: str):

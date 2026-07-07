@@ -25,6 +25,7 @@ type TestConfig = {
   name: string;
   subject: string;
   limit: number;
+  timeLimit: number;
   minDifficulty: number;
   maxDifficulty: number;
   sortOrder: string;
@@ -41,6 +42,7 @@ export default function EnhancedTestGenerator() {
   // Core State
   const [subject, setSubject] = useState("Quant");
   const [limit, setLimit] = useState(5);
+  const [timeLimit, setTimeLimit] = useState(15);
   const [minDifficulty, setMinDifficulty] = useState<number>(1.0);
   const [maxDifficulty, setMaxDifficulty] = useState<number>(10.0);
   const [sortOrder, setSortOrder] = useState<string>("random");
@@ -108,7 +110,7 @@ export default function EnhancedTestGenerator() {
 
   // Compile current state into an object
   const getCurrentConfig = (name: string): TestConfig => ({
-    name, subject, limit, minDifficulty, maxDifficulty, sortOrder, 
+    name, subject, limit, timeLimit, minDifficulty, maxDifficulty, sortOrder, 
     calcIntensity, questionType, selectedTopics, selectedSubTopics, selectedTrap
   });
 
@@ -123,6 +125,7 @@ export default function EnhancedTestGenerator() {
   const loadPreset = (config: TestConfig) => {
     setSubject(config.subject);
     setLimit(config.limit);
+    setTimeLimit(config.timeLimit ?? 15);
     setMinDifficulty(config.minDifficulty);
     setMaxDifficulty(config.maxDifficulty);
     setSortOrder(config.sortOrder);
@@ -142,7 +145,7 @@ export default function EnhancedTestGenerator() {
     
     const queryParams = new URLSearchParams({
       subject, limit: limit.toString(), min_diff: minDifficulty.toString(), 
-      max_diff: maxDifficulty.toString(), sort: sortOrder
+      max_diff: maxDifficulty.toString(), sort: sortOrder, time_limit: timeLimit.toString()
     });
 
     if (calcIntensity) queryParams.append("calculation_intensity", calcIntensity);
@@ -249,14 +252,22 @@ export default function EnhancedTestGenerator() {
             {/* Child Sub-Topics (Only renders if a Parent Topic is selected) */}
             {selectedTopics.length > 0 && (
               <div className="pt-4 mt-4 border-t border-gray-200 animate-fadeIn">
-                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3 block">Target Specific Sub-Topics</span>
+                <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-3 block">
+                  Target Specific Sub-Topics
+                </span>
                 <div className="flex flex-wrap gap-2">
-                  {selectedTopics.flatMap(topic => dynamicTaxonomy[topic] || []).map((subTopic) => {
+                  {/* 🚀 FIX: Array.from(new Set(...)) strictly deduplicates the sub-topics */}
+                  {Array.from(new Set(selectedTopics.flatMap(topic => dynamicTaxonomy[topic] || []))).map((subTopic) => {
                     const isChecked = selectedSubTopics.includes(subTopic);
                     return (
-                      <button key={subTopic} type="button" onClick={() => toggleArrayItem(subTopic, setSelectedSubTopics)}
+                      <button 
+                        key={subTopic} 
+                        type="button" 
+                        onClick={() => toggleArrayItem(subTopic, setSelectedSubTopics)}
                         className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                          isChecked ? "bg-indigo-100 text-indigo-800 border-indigo-300" : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
+                          isChecked 
+                            ? "bg-indigo-100 text-indigo-800 border-indigo-300" 
+                            : "bg-white text-gray-500 border-gray-200 hover:border-gray-300"
                         }`}
                       >
                         {subTopic}
@@ -270,18 +281,35 @@ export default function EnhancedTestGenerator() {
 
           {/* Step 3 & 4: Quantities and Exact Difficulty */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-            {/* Target Count Slider */}
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-                  <Target className="w-4 h-4 text-blue-600" /> 3. Target Count
-                </label>
-                <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-md">{limit} Questions</span>
+            <div className="space-y-6">
+              {/* Target Count Slider */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                    <Target className="w-4 h-4 text-blue-600" /> 3. Target Count
+                  </label>
+                  <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-md">{limit} Questions</span>
+                </div>
+                <div className="relative pt-2">
+                  <input type="range" min="2" max="20" step="1" value={limit} onChange={(e) => setLimit(parseInt(e.target.value))}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 hover:accent-blue-700 transition-all"
+                  />
+                </div>
               </div>
-              <div className="relative pt-2">
-                <input type="range" min="2" max="20" step="1" value={limit} onChange={(e) => setLimit(parseInt(e.target.value))}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 hover:accent-blue-700 transition-all"
-                />
+
+              {/* Time Slider */}
+              <div className="space-y-4">
+                <div className="flex justify-between items-center">
+                  <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                    <span className="w-4 h-4 text-blue-600">⏱️</span> Test Duration
+                  </label>
+                  <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-md">{timeLimit} Mins</span>
+                </div>
+                <div className="relative pt-2">
+                  <input type="range" min="5" max="60" step="5" value={timeLimit} onChange={(e) => setTimeLimit(parseInt(e.target.value))}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 hover:accent-blue-700 transition-all"
+                  />
+                </div>
               </div>
             </div>
 

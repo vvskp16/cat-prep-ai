@@ -11,6 +11,7 @@ function PracticeSessionContent() {
   // --- Launcher Configuration States (Fallback) ---
   const [subject, setSubject] = useState<'Quant' | 'DILR' | 'VARC' | ''>('');
   const [limit, setLimit] = useState<number>(5);
+  const [initialTimeInSeconds, setInitialTimeInSeconds] = useState<number>(2400);
   
   // --- Operational Control States ---
   const [testPayload, setTestPayload] = useState<Question[] | null>(null);
@@ -51,6 +52,13 @@ function PracticeSessionContent() {
           const questionsMatrix = Array.isArray(rawResponse) 
             ? rawResponse 
             : rawResponse.questions || [];
+
+          const requestedTimeLimit = searchParams.get('time_limit');
+          const calculatedTimeInSeconds = requestedTimeLimit
+            ? parseInt(requestedTimeLimit, 10) * 60
+            : questionsMatrix.length * 120;
+
+          setInitialTimeInSeconds(calculatedTimeInSeconds);
 
           if (questionsMatrix.length === 0) {
             setErrorMessage("No matching questions discovered inside the vector collection matching these filter keys.");
@@ -93,11 +101,10 @@ function PracticeSessionContent() {
       setIsLoading(false);
     }
   };
-  
+
   // Safe Mode: If test data has been successfully initialized, shift view directly into the active player workspace
   if (testPayload) {
-    // We base the time limit on the actual returned questions to account for contextual injections
-    return <ExamEngine initialTestData={testPayload} initialTimeInSeconds={testPayload.length * 120} />;
+    return <ExamEngine initialTestData={testPayload} initialTimeInSeconds={initialTimeInSeconds} />;
   }
 
   // Render the Fallback / Loading UI
