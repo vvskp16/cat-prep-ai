@@ -61,42 +61,35 @@ export default function EnhancedTestGenerator() {
   // Presets State
   const [presets, setPresets] = useState<TestConfig[]>([]);
 
-  // 1. DYNAMIC FETCHING & CASCADING LOGIC
+  // 1. DYNAMIC FETCHING & CASCADING LOGIC (Live from ChromaDB)
   useEffect(() => {
     async function fetchDynamicTaxonomy() {
       setIsFetchingFilters(true);
       try {
-        await new Promise(resolve => setTimeout(resolve, 500)); // Fake delay
+        // Ping your FastAPI backend for the live metadata schema
+        const response = await fetch(`http://localhost:8000/api/taxonomy?subject=${subject}`);
         
-        // SIMULATED BACKEND RESPONSE - Notice the nested hierarchy now
-        if (subject === "Quant") {
-          setDynamicTaxonomy({
-            "Arithmetic": ["Time-Speed-Distance", "Percentages", "Ratios", "SI & CI", "Averages"],
-            "Algebra": ["Quadratic Equations", "Logarithms", "Functions & Graphs"],
-            "Geometry": ["Triangles", "Circles", "Mensuration", "Coordinate Geometry"],
-            "Modern Math": ["Permutation & Combination", "Probability"]
-          });
-          setDynamicTraps(["double-counting", "boundary-condition", "unit-conversion"]);
-        } else if (subject === "DILR") {
-          setDynamicTaxonomy({
-            "Logical Reasoning": ["Blood Relations", "Syllogisms", "Seating Arrangement"],
-            "Data Interpretation": ["Bar Charts", "Pie Charts", "Radar Graphs"],
-            "Caselets": ["Matrix Arrangements", "Venn Diagrams"]
-          });
-          setDynamicTraps(["deduction", "extreme-option", "missing-data"]);
-        } else {
-          setDynamicTaxonomy({
-            "Reading Comprehension": ["Philosophy", "Science & Tech", "Economics", "History"],
-            "Verbal Ability": ["Parajumbles", "Paragraph Summary", "Odd One Out"]
-          });
-          setDynamicTraps(["extreme-option", "out-of-context", "partial-truth"]);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch taxonomy. Status: ${response.status}`);
         }
+        
+        const data = await response.json();
+        
+        // Populate the state with real data extracted from ChromaDB
+        setDynamicTaxonomy(data.taxonomy || {});
+        setDynamicTraps(data.traps || []);
+        
+      } catch (error) {
+        console.error("Error fetching dynamic taxonomy from ChromaDB:", error);
+        // Fallback to empty if DB fetch fails
+        setDynamicTaxonomy({});
+        setDynamicTraps([]);
       } finally {
         setIsFetchingFilters(false);
       }
     }
 
-    // Reset cascading selections on subject change
+    // Reset cascading selections whenever the parent Subject changes
     setSelectedTopics([]);
     setSelectedSubTopics([]);
     setSelectedTrap("");

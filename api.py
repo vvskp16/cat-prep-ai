@@ -239,6 +239,53 @@ async def generate_test(payload: TestGenRequest):
     # 7. Return exact limited slice to frontend
     return {"questions": questions[:payload.limit]}
 
+@app.get("/api/taxonomy")
+async def get_taxonomy(subject: str):
+    """
+    Dynamically aggregates topics, sub-topics, and traps directly from ChromaDB 
+    based on the currently selected subject.
+    """
+    try:
+        # Query ChromaDB for all documents matching the selected subject
+        results = collection.get(
+            where={"subject": {"$eq": subject}},
+            include=["metadatas"]
+        )
+        
+        taxonomy = {}
+        traps = set()
+        
+        # Iterate over all metadata records to build the hierarchy dynamically
+        for meta in results.get("metadatas", []):
+            if not meta: continue
+            
+            topic = meta.get("topic")
+            sub_topic = meta.get("sub_topic")
+            trap = meta.get("trap_type")
+            
+            # 1. Build the Topic -> Sub-Topic Cascading Dictionary
+            if topic and str(topic).strip() and str(topic).lower() != "none":
+                if topic not in taxonomy:
+                    taxonomy[topic] = set()
+                if sub_topic and str(sub_topic).strip() and str(sub_topic).lower() != "none":
+                    taxonomy[topic].add(sub_topic)
+                    
+            # 2. Collect Unique Trap Types
+            if trap and str(trap).strip() and str(trap).lower() != "none":
+                traps.add(trap)
+                
+        # Convert Python Sets to sorted Lists so it's JSON serializable
+        formatted_taxonomy = {k: sorted(list(v)) for k, v in taxonomy.items()}
+        
+        return {
+            "taxonomy": formatted_taxonomy,
+            "traps": sorted(list(traps))
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to fetch taxonomy: {str(e)}")
+
 @app.get("/api/debug-db")
 async def debug_db():
     try:
