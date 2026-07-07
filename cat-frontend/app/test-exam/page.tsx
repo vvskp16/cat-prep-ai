@@ -15,7 +15,7 @@ function TestExamContent() {
     async function initTest() {
       const subject = searchParams.get('subject');
       
-      // Strict Routing: If no subject is passed, bounce them back to Dashboard
+      // Strict Routing: If no subject is passed, bounce them back to Create Test
       if (!subject) {
         router.replace('/');
         return;
@@ -78,7 +78,7 @@ function TestExamContent() {
            <h2 className="text-xl font-bold text-red-600 mb-2">No Questions Found</h2>
            <p className="text-gray-600 mb-6">Could not find questions matching your exact filters.</p>
            <button onClick={() => router.replace('/')} className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold">
-             Return to Dashboard
+             Return to Create Test
            </button>
         </div>
       </div>

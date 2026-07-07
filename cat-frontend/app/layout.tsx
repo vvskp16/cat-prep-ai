@@ -33,7 +33,7 @@ export default function RootLayout({
             {/* MAIN LINKS */}
             <div className="flex items-center space-x-6 text-sm font-medium">
               <Link href="/" className="text-slate-300 hover:text-white transition-colors">
-                Dashboard
+                Create Test
               </Link>
               <Link href="/history" className="text-slate-300 hover:text-white transition-colors">
                 Performance History

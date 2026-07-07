@@ -77,7 +77,8 @@ export default function HistoryPage() {
         initialTestData={selectedExam.testData} 
         pastUserAnswers={selectedExam.userAnswers}
         pastTimeSpent={selectedExam.timeSpent}
-        isReviewMode={true} 
+        isReviewMode={true}
+        onExit={() => setSelectedExam(null)} 
       />
     );
   }
@@ -194,10 +195,7 @@ export default function HistoryPage() {
               <div key={exam.id} className="p-4 border border-slate-200 rounded-lg flex justify-between items-center bg-white shadow-sm hover:shadow transition-shadow group">
                 <div>
                   <h3 className="font-semibold text-slate-800 flex items-center gap-2 text-sm">
-                    Practice Blueprint 
-                    <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wider font-mono border border-slate-200">
-                      {exam.id.slice(-6)}
-                    </span>
+                      Test: {exam.id.slice(-6)}
                   </h3>
                   <p className="text-xs text-slate-400 mt-1">{new Date(exam.date).toLocaleString()}</p>
                   

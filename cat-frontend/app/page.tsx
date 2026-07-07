@@ -192,11 +192,8 @@ export default function EnhancedTestGenerator() {
           <div>
             <h2 className="text-xl font-bold tracking-tight flex items-center gap-2">
               <Sliders className="w-5 h-5 text-blue-300" />
-              Custom Practice Blueprint Wizard
+              Configure Test Parameters
             </h2>
-          </div>
-          <div className="bg-white/10 px-4 py-2 rounded-full text-xs font-mono backdrop-blur-sm border border-white/20">
-            Live Taxonomy Sync
           </div>
         </div>
 
@@ -228,7 +225,7 @@ export default function EnhancedTestGenerator() {
           <div className="space-y-3 bg-gray-50/80 p-5 rounded-xl border border-gray-100 min-h-[120px]">
             <div className="flex justify-between items-center mb-2">
               <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-                <Layers className="w-4 h-4 text-indigo-600" /> 2. Focus Areas (Cascading Taxonomy)
+                <Layers className="w-4 h-4 text-indigo-600" /> 2. Focus Areas
               </label>
               {isFetchingFilters && <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />}
             </div>
@@ -345,7 +342,7 @@ export default function EnhancedTestGenerator() {
             >
               <span className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-gray-500" />
-                Advanced Settings (Sorting, Operations, Traps)
+                Advanced Settings (Sorting, Q.Type)
               </span>
               <span className="text-xs text-gray-400 font-mono">{showAdvanced ? "▲ HIDE" : "▼ EXPAND"}</span>
             </button>
@@ -361,22 +358,9 @@ export default function EnhancedTestGenerator() {
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1"><Zap className="w-3.5 h-3.5 text-amber-500" /> Calc Intensity</label>
-                  <select value={calcIntensity} onChange={(e) => setCalcIntensity(e.target.value)} className="w-full text-xs p-2.5 rounded-lg bg-gray-50 border border-gray-200">
-                    <option value="">Any</option><option value="Low">Low</option><option value="Medium">Medium</option><option value="High">High</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Format</label>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500">Q.Type(Mixed, MCQ, TITA)</label>
                   <select value={questionType} onChange={(e) => setQuestionType(e.target.value)} className="w-full text-xs p-2.5 rounded-lg bg-gray-50 border border-gray-200">
                     <option value="">Mixed</option><option value="MCQ">Standard MCQ</option><option value="TITA">Type In The Answer</option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1"><ShieldAlert className="w-3.5 h-3.5 text-red-500" /> Target Trap</label>
-                  <select value={selectedTrap} onChange={(e) => setSelectedTrap(e.target.value)} className="w-full text-xs p-2.5 rounded-lg bg-gray-50 border border-gray-200">
-                    <option value="">No explicit trap</option>
-                    {dynamicTraps.map(trap => <option key={trap} value={trap}>{trap}</option>)}
                   </select>
                 </div>
               </div>
@@ -399,7 +383,7 @@ export default function EnhancedTestGenerator() {
               type="submit"
               className="px-8 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm hover:from-blue-700 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all flex items-center gap-2"
             >
-              Assemble Exam Set →
+              Create Test →
             </button>
           </div>
         </form>

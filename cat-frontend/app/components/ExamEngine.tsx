@@ -22,6 +22,7 @@ interface ExamEngineProps {
   isReviewMode?: boolean;
   pastUserAnswers?: Record<string, string>;
   pastTimeSpent?: Record<string, number>; 
+  onExit?: () => void;
 }
 
 export default function ExamEngine({ 
@@ -29,7 +30,8 @@ export default function ExamEngine({
   initialTimeInSeconds = 1200, 
   isReviewMode = false,
   pastUserAnswers = {},
-  pastTimeSpent = {}
+  pastTimeSpent = {},
+  onExit
 }: ExamEngineProps) {
   const router = useRouter();
 
@@ -166,17 +168,21 @@ export default function ExamEngine({
               </button>
             </div>
           ) : (
-            <button 
-              type="button" 
-              onClick={(e) => {
-                e.preventDefault();
-                router.push('/history');
-              }} 
-              className="bg-gray-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center gap-2"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-              Exit Engine
-            </button>
+              <button 
+                type="button" 
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (onExit) {
+                    onExit(); // If a parent component passed a close function, use it
+                  } else {
+                    window.location.href = '/history'; // Hard-force the browser to reload the history route
+                  }
+                }} 
+                className="bg-gray-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                Exit Engine
+              </button>
           )}
         </div>
         
