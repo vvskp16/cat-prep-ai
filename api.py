@@ -197,6 +197,7 @@ class TestGenRequest(BaseModel):
     topic: Optional[str] = None
     sub_topic: Optional[str] = None
     question_type: Optional[str] = None
+
 @app.post("/api/generate-test")
 async def generate_test(payload: TestGenRequest):
     print(f"✅ Successfully received JSON payload: {payload.model_dump()}")
@@ -244,6 +245,16 @@ async def generate_test(payload: TestGenRequest):
             }
 
         try:
+            q_imgs = json.loads(meta.get("question_images", "[]")) if meta.get("question_images") else []
+        except Exception:
+            q_imgs = []
+            
+        try:
+            s_imgs = json.loads(meta.get("solution_images", "[]")) if meta.get("solution_images") else []
+        except Exception:
+            s_imgs = []
+
+        try:
             original_sources = json.loads(meta.get("original_sources", "[]")) if meta.get("original_sources") else []
         except Exception:
             original_sources = []
@@ -257,9 +268,11 @@ async def generate_test(payload: TestGenRequest):
             "has_parent_context": str(meta.get("has_parent_context")).lower() == "true",
             "parent_context": parent_context,
             "question_text": meta.get("question_text", ""),
+            "question_images": q_imgs,
             "options": options_dict,
             "correct_answer": meta.get("correct_answer", ""),
             "solution_text": meta.get("solution_text", ""),
+            "solution_images": s_imgs,
             "original_sources": original_sources,
             "metadata_hooks": {
                 "trap_type": meta.get("trap_type", ""),

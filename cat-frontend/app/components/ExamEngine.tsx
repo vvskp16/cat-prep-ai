@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import MathRenderer from './MathRenderer';
 
 // --- INTERFACES ---
-interface ParentContext { context_id: string; context_type: string; context_body: string; }
+interface ParentContext { context_id: string; context_type: string; context_body: string; context_images?: string[]; }
 interface QuestionOptions { A?: string; B?: string; C?: string; D?: string; }
 interface OriginalSource { label: string; link: string; } // <--- ADD THIS
 
@@ -15,6 +15,8 @@ export interface Question {
   question_text: string; options: QuestionOptions | null; correct_answer: string;
   solution_text: string; original_sources?: OriginalSource[] | string; 
   metadata_hooks?: { difficulty?: string; difficulty_level?: number; calculation_intensity?: string; };
+  question_images?: string[];
+  solution_images?: string[];
 }
 interface ExamEngineProps {
   initialTestData: Question[];
@@ -24,6 +26,21 @@ interface ExamEngineProps {
   pastTimeSpent?: Record<string, number>; 
   onExit?: () => void;
 }
+// Strips out raw JSON arrays that accidentally leaked into the text body
+const cleanTextContent = (text: string | undefined) => {
+  if (!text) return "";
+  return text.replace(/\[\s*["']\/images\/[^\]]+["']\s*\]/g, '').trim();
+};
+
+// Strips double quotes/brackets if the image string got double-encoded
+const getValidImageSrc = (rawImg: string) => {
+  let cleanSrc = typeof rawImg === 'string' ? rawImg.replace(/[\[\]"']/g, '').trim() : '';
+  // Ensure it has a leading slash for the Next.js public directory
+  if (cleanSrc && !cleanSrc.startsWith('/')) {
+      cleanSrc = '/' + cleanSrc;
+  }
+  return cleanSrc;
+};
 
 export default function ExamEngine({ 
   initialTestData, 
@@ -191,24 +208,28 @@ export default function ExamEngine({
           {/* LEFT PANE */}
           <div className="flex-1 overflow-y-auto p-6 relative bg-white">
             <div className={currentQuestion.has_parent_context ? "grid grid-cols-1 lg:grid-cols-2 gap-8 h-full" : "max-w-4xl mx-auto"}>
-               {currentQuestion.has_parent_context && currentQuestion.parent_context && (
-                   <div className="border-r border-gray-200 pr-6 h-full overflow-y-auto">
-                      <div className="bg-gray-50 p-6 rounded-xl shadow-inner text-gray-800 text-sm leading-relaxed border border-gray-100">
-                         <MathRenderer content={currentQuestion.parent_context.context_body} />
-                      </div>
-                   </div>
-               )}
+              {currentQuestion.has_parent_context && currentQuestion.parent_context && (
+                  <div className="mb-6 p-6 bg-gray-50 rounded-xl border border-gray-200">
+                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Context</h3>
+                    <div className="text-lg text-gray-800 whitespace-pre-wrap">
+                      <MathRenderer content={cleanTextContent(currentQuestion.parent_context.context_body)} />
+                    </div>
+                    {currentQuestion.parent_context.context_images?.map((img, idx) => (
+                      <img key={idx} src={getValidImageSrc(img)} alt="Context" className="mt-4 max-w-full rounded-lg shadow-sm border border-gray-200" />
+                    ))}
+                  </div>
+                )}
 
                <div className="flex flex-col pb-20">
                   <div className="flex items-center justify-between mb-4">
                      <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">Question {currentIndex + 1}</span>
-                     <span className="text-xs font-bold bg-gray-100 border border-gray-200 text-gray-600 px-3 py-1 rounded-full">
-                       {currentQuestion.question_type}
-                     </span>
                   </div>
-                  <div className="text-lg text-gray-800 mb-8 font-medium">
-                    <MathRenderer content={currentQuestion.question_text} />
+                  <div className="text-lg text-gray-800 font-medium mb-6 whitespace-pre-wrap">
+                    <MathRenderer content={cleanTextContent(currentQuestion.question_text)} />
                   </div>
+                  {currentQuestion.question_images?.map((img, idx) => (
+                    <img key={idx} src={getValidImageSrc(img)} alt="Question" className="mb-6 max-w-full rounded-lg shadow-sm border border-gray-200" />
+                  ))}
 
                   {/* Options */}
                   {currentQuestion.question_type === 'MCQ' && currentQuestion.options ? (
@@ -297,8 +318,14 @@ export default function ExamEngine({
                               <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
                               Solution
                             </h4>
-                            <div className="text-gray-700 leading-relaxed">
-                              <MathRenderer content={currentQuestion.solution_text || "No solution provided."} />
+                            <div className="mt-4">
+                              <h4 className="font-bold text-gray-700 mb-2">Solution:</h4>
+                              <div className="text-gray-700 whitespace-pre-wrap">
+                                <MathRenderer content={cleanTextContent(currentQuestion.solution_text) || "No detailed solution provided."} />
+                              </div>
+                              {currentQuestion.solution_images?.map((img, idx) => (
+                                <img key={idx} src={getValidImageSrc(img)} alt="Solution" className="mt-4 max-w-full rounded-lg shadow-sm border border-gray-200" />
+                              ))}
                             </div>
                           </div>
                           

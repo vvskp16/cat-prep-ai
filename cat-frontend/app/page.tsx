@@ -288,7 +288,7 @@ export default function EnhancedTestGenerator() {
                   <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-md">{limit} Questions</span>
                 </div>
                 <div className="relative pt-2">
-                  <input type="range" min="2" max="20" step="1" value={limit} onChange={(e) => setLimit(parseInt(e.target.value))}
+                  <input type="range" min="2" max="700" step="1" value={limit} onChange={(e) => setLimit(parseInt(e.target.value))}
                     className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 hover:accent-blue-700 transition-all"
                   />
                 </div>
@@ -303,7 +303,7 @@ export default function EnhancedTestGenerator() {
                   <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-md">{timeLimit} Mins</span>
                 </div>
                 <div className="relative pt-2">
-                  <input type="range" min="5" max="60" step="5" value={timeLimit} onChange={(e) => setTimeLimit(parseInt(e.target.value))}
+                  <input type="range" min="5" max="120" step="5" value={timeLimit} onChange={(e) => setTimeLimit(parseInt(e.target.value))}
                     className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 hover:accent-blue-700 transition-all"
                   />
                 </div>

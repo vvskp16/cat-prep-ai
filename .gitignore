@@ -226,3 +226,9 @@ cat-frontend/public/images/
 dev_scripts/extraction/extracted_images/
 dev_scripts/extraction/extracted_json/
 dev_scripts/extraction/raw_html/
+chroma_db/
+chroma_db - Copy/
+dev_scripts/extraction/extracted_json - Copy/
+test.json
+ingestion_output.txt
+chroma_ready_docs.zip

@@ -88,10 +88,13 @@ function TestExamContent() {
     );
   }
 
+  const timeLimitParam = searchParams.get('time_limit');
+  const timerSeconds = timeLimitParam ? parseInt(timeLimitParam) * 60 : testPayload.length * 120;
+
   return (
     <ExamEngine 
       initialTestData={testPayload} 
-      initialTimeInSeconds={testPayload.length * 120} 
+      initialTimeInSeconds={timerSeconds} 
     />
   );
 }
