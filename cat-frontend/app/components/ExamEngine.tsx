@@ -1,19 +1,21 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import MathRenderer from './MathRenderer';
 
 // --- INTERFACES ---
 interface ParentContext { context_id: string; context_type: string; context_body: string; }
 interface QuestionOptions { A?: string; B?: string; C?: string; D?: string; }
+interface OriginalSource { label: string; link: string; } // <--- ADD THIS
+
 export interface Question {
   id: string; subject: string; question_type: string; topic: string; sub_topic: string;
   has_parent_context: boolean; parent_context: ParentContext | null;
   question_text: string; options: QuestionOptions | null; correct_answer: string;
-  solution_text: string; original_sources?: string;
+  solution_text: string; original_sources?: OriginalSource[] | string; 
   metadata_hooks?: { difficulty?: string; difficulty_level?: number; calculation_intensity?: string; };
 }
-
 interface ExamEngineProps {
   initialTestData: Question[];
   initialTimeInSeconds?: number;
@@ -29,6 +31,8 @@ export default function ExamEngine({
   pastUserAnswers = {},
   pastTimeSpent = {}
 }: ExamEngineProps) {
+  const router = useRouter();
+
   const [testData] = useState<Question[]>(initialTestData);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>(pastUserAnswers);
@@ -88,7 +92,6 @@ export default function ExamEngine({
   };
 
   const submitExam = () => {
-    setIsSubmitted(true);
     setShowExitModal(false);
     
     const pastExams = JSON.parse(localStorage.getItem('cat_exam_history') || '[]');
@@ -101,6 +104,8 @@ export default function ExamEngine({
       totalTimeTaken: initialTimeInSeconds - timeLeft
     };
     localStorage.setItem('cat_exam_history', JSON.stringify([newExamRecord, ...pastExams]));
+    // Sends the user straight to the summary page instead of staying in the engine
+    router.push('/history');
   };
 
   const getPaletteColor = (index: number) => {
@@ -122,9 +127,19 @@ export default function ExamEngine({
     }
   };
 
-  const parseSources = (sourcesStr?: string) => {
+  const parseSources = (sourcesStr?: OriginalSource[] | string): OriginalSource[] => {
     if (!sourcesStr) return [];
-    try { return JSON.parse(sourcesStr); } catch { return []; }
+    
+    // If FastAPI successfully passed it as a Javascript Array, just return it!
+    if (Array.isArray(sourcesStr)) return sourcesStr;
+    
+    // If it comes through as a string from LocalStorage or older DB records
+    try { 
+      const parsed = JSON.parse(sourcesStr);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { 
+      return []; 
+    }
   };
 
   return (
@@ -151,7 +166,14 @@ export default function ExamEngine({
               </button>
             </div>
           ) : (
-            <button onClick={() => window.history.back()} className="bg-gray-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center gap-2">
+            <button 
+              type="button" 
+              onClick={(e) => {
+                e.preventDefault();
+                router.push('/history');
+              }} 
+              className="bg-gray-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center gap-2"
+            >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
               Exit Engine
             </button>
@@ -267,7 +289,7 @@ export default function ExamEngine({
                           <div className="p-6 bg-indigo-50/50 border border-indigo-100 rounded-xl">
                             <h4 className="font-bold text-indigo-900 mb-4 flex items-center gap-2">
                               <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-                              Official Solution
+                              Solution
                             </h4>
                             <div className="text-gray-700 leading-relaxed">
                               <MathRenderer content={currentQuestion.solution_text || "No solution provided."} />

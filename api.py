@@ -240,6 +240,12 @@ async def generate_test(payload: TestGenRequest):
                 "context_images": json.loads(meta.get("context_images", "[]")) if meta.get("context_images") else []
             }
 
+        # ADD THIS: Extract Original Sources safely
+        try:
+            original_sources = json.loads(meta.get("original_sources", "[]")) if meta.get("original_sources") else []
+        except Exception:
+            original_sources = []
+
         # 3. Assemble the rich UI-ready object
         q_obj = {
             "id": meta.get("id"),
@@ -253,6 +259,7 @@ async def generate_test(payload: TestGenRequest):
             "options": options_dict,
             "correct_answer": meta.get("correct_answer", ""),
             "solution_text": meta.get("solution_text", ""),
+            "original_sources": original_sources,
             "metadata_hooks": {
                 "trap_type": meta.get("trap_type", ""),
                 "difficulty": meta.get("difficulty", "Medium"),
