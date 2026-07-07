@@ -2,7 +2,7 @@ import chromadb
 import uuid
 
 client = chromadb.PersistentClient(path="./chroma_db")
-collection = client.get_collection(name="cat_prep_questions")
+collection = client.get_collection(name="cat_questions")
 
 all_data = collection.get()
 

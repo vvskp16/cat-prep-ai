@@ -31,32 +31,34 @@ function PracticeSessionContent() {
         setErrorMessage(null);
 
         try {
-          // Dynamically build the config payload from all available URL query params
           const config = {
-            subject: urlSubject,
-            limit: parseInt(searchParams.get('limit') || '5'),
+            subject: searchParams.get('subject') || undefined,
+            limit: parseInt(searchParams.get('limit') || '5', 10),
             min_difficulty_level: searchParams.get('min_diff') ? parseFloat(searchParams.get('min_diff') as string) : undefined,
             max_difficulty_level: searchParams.get('max_diff') ? parseFloat(searchParams.get('max_diff') as string) : undefined,
-            topic: searchParams.get('topics'),
-            sub_topic: searchParams.get('sub_topics'),
-            question_type: searchParams.get('question_type')
+            topic: searchParams.get('topics') || undefined,
+            sub_topic: searchParams.get('sub_topics') || undefined,
+            question_type: searchParams.get('question_type') || undefined
           };
 
-          // Clean undefined/null values out of the payload
           const cleanConfig = Object.fromEntries(
-            Object.entries(config).filter(([_, v]) => v != null)
+            Object.entries(config).filter(([_, v]) => v !== undefined)
           );
 
-          // Pass the rich payload to your API client
-          const questionsMatrix = await generatePracticeTest(cleanConfig as any);
+          // 🚀 Uses cleanConfig
+          const rawResponse = await generatePracticeTest(cleanConfig);
           
+          const questionsMatrix = Array.isArray(rawResponse) 
+            ? rawResponse 
+            : rawResponse.questions || [];
+
           if (questionsMatrix.length === 0) {
             setErrorMessage("No matching questions discovered inside the vector collection matching these filter keys.");
           } else {
             setTestPayload(questionsMatrix);
           }
         } catch (err: any) {
-          setErrorMessage(err.message || "Network execution breakdown: Connection to FastAPI endpoint aborted.");
+          setErrorMessage(err.message || "Network execution breakdown...");
         } finally {
           setIsLoading(false);
         }
@@ -73,8 +75,13 @@ function PracticeSessionContent() {
     setErrorMessage(null);
 
     try {
-      const questionsMatrix = await generatePracticeTest({ subject, limit });
+      // 🚀 FIX: Uses { subject, limit } directly from React state, NOT cleanConfig
+      const rawResponse = await generatePracticeTest({ subject, limit });
       
+      const questionsMatrix = Array.isArray(rawResponse) 
+        ? rawResponse 
+        : rawResponse.questions || [];
+        
       if (questionsMatrix.length === 0) {
         setErrorMessage("No matching questions discovered...");
       } else {
@@ -86,7 +93,7 @@ function PracticeSessionContent() {
       setIsLoading(false);
     }
   };
-
+  
   // Safe Mode: If test data has been successfully initialized, shift view directly into the active player workspace
   if (testPayload) {
     // We base the time limit on the actual returned questions to account for contextual injections

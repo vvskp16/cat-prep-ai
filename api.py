@@ -56,7 +56,7 @@ chroma_client = chromadb.PersistentClient(path="./chroma_db")
 
 # 3. Connect to the EXACT SAME collection name
 collection = chroma_client.get_or_create_collection(
-    name="cat_prep_questions", # MUST MATCH YOUR INGESTION SCRIPT
+    name="cat_questions", # MUST MATCH YOUR INGESTION SCRIPT
     embedding_function=openai_ef
 )
 
@@ -188,41 +188,56 @@ async def enrich_batch_data(
         }
     }
 
-@app.post("/api/generate-test")
-async def generate_test(
-    subject: str,
-    limit: int = 5,
-    min_diff: float = 1.0,
-    max_diff: float = 10.0,
-    sort: str = "random",
-    topics: str = None
-):
-    # 1. Build ChromaDB Where Clause
-    where_filter = {
-        "$and": [
-            {"subject": {"$eq": subject}},
-            {"difficulty_level": {"$gte": min_diff}},
-            {"difficulty_level": {"$lte": max_diff}}
-        ]
-    }
-    
-    # ... append other filters like topics/traps to where_filter ...
+# Define the exact structure of the JSON body coming from Next.js
+class TestGenRequest(BaseModel):
+    subject: Optional[str] = None
+    limit: int = 5
+    min_difficulty_level: Optional[float] = None
+    max_difficulty_level: Optional[float] = None
+    topic: Optional[str] = None
+    sub_topic: Optional[str] = None
+    question_type: Optional[str] = None
 
-    # 2. Fetch from ChromaDB
-    results = collection.get(where=where_filter, limit=50) # Fetch a wider net for sorting
+# Pass the model into the endpoint
+@app.post("/api/generate-test")
+async def generate_test(payload: TestGenRequest):
     
-    # 3. Apply Python-level sorting on the metadata array
+    print(f"✅ Successfully received JSON payload: {payload.model_dump()}")
+    
+    # Build your ChromaDB Where Clause using the payload
+    and_conditions = []
+    
+    if payload.subject:
+        and_conditions.append({"subject": {"$eq": payload.subject}})
+    if payload.topic:
+        and_conditions.append({"topic": {"$eq": payload.topic}})
+    if payload.min_difficulty_level is not None:
+        and_conditions.append({"difficulty_level": {"$gte": payload.min_difficulty_level}})
+    if payload.max_difficulty_level is not None:
+        and_conditions.append({"difficulty_level": {"$lte": payload.max_difficulty_level}})
+
+    where_filter = None
+    if len(and_conditions) == 1:
+        where_filter = and_conditions[0]
+    elif len(and_conditions) > 1:
+        where_filter = {"$and": and_conditions}
+
+    # Fetch from ChromaDB
+    results = collection.get(
+        where=where_filter, 
+        limit=100
+    ) 
+    
+    if not results or not results.get("ids"):
+        return []
+
+    # Process your metadatas...
     questions = results["metadatas"]
     
-    if sort == "asc":
-        questions.sort(key=lambda q: q["difficulty_level"])
-    elif sort == "desc":
-        questions.sort(key=lambda q: q["difficulty_level"], reverse=True)
-    else:
-        shuffle(questions)
+    # (Optional: Add your sorting logic here)
 
-    # 4. Return exact limited slice to frontend
-    return {"questions": questions[:limit]}
+    # 7. Return exact limited slice to frontend
+    return {"questions": questions[:payload.limit]}
 
 @app.get("/api/debug-db")
 async def debug_db():
