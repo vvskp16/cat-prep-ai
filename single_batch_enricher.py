@@ -66,7 +66,7 @@ def process_single_batch(file_name: str, target_batch_idx: int):
 
     # 4. Call the LLM with the newly extracted images
     try:
-        metadata_payload = enrich_scraped_json_batch(base64_images, deterministic_ocr_text)
+        metadata_payload, _ = enrich_scraped_json_batch("gpt-5.4-mini", batch, base64_images)
         
         if len(metadata_payload.questions) != len(batch.get("questions", [])):
             raise ValueError(f"Array length mismatch. Expected {len(batch.get('questions', []))} but got {len(metadata_payload.questions)}.")
@@ -78,8 +78,17 @@ def process_single_batch(file_name: str, target_batch_idx: int):
             batch["questions"][idx]["sub_topic"] = q_meta.sub_topic
             batch["questions"][idx]["metadata_hooks"] = q_meta.metadata_hooks.model_dump()
             
-            # Generate the Vector DB combined text
-            batch["questions"][idx]["combined_embed_text"] = f"{context_body}\n{batch['questions'][idx].get('question_text', '')}\nConcepts & Keywords: {', '.join(q_meta.semantic_keywords)}\nCore Trap: {q_meta.metadata_hooks.trap_type}"
+            # NEW: Map the image descriptions
+            batch["questions"][idx]["image_descriptions"] = q_meta.image_descriptions
+            
+            # Update the Vector DB combined text to include Image Context
+            image_desc_text = " ".join(q_meta.image_descriptions)
+            batch["questions"][idx]["combined_embed_text"] = (
+                f"{context_body}\n{batch['questions'][idx].get('question_text', '')}\n"
+                f"Concepts & Keywords: {', '.join(q_meta.semantic_keywords)}\n"
+                f"Image Context: {image_desc_text}\n"
+                f"Core Trap: {q_meta.metadata_hooks.trap_type}"
+            )
         
         output_file_path = OUTPUT_DIR / f"debug_enriched_{file_name}_batch_{target_batch_idx}.json"
         with open(output_file_path, "w", encoding="utf-8") as f:

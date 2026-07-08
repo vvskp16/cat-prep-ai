@@ -28,8 +28,7 @@ def flatten_for_chroma(q: dict, batch_type: str) -> dict:
         "solution_text": q.get("solution_text", ""),
         
         # Arrays to Strings
-        "question_images": json.dumps(q.get("question_images", [])),
-        "solution_images": json.dumps(q.get("solution_images", [])),
+        "image_descriptions": json.dumps(q.get("image_descriptions", [])),
         "semantic_keywords": json.dumps(q.get("semantic_keywords", [])),
         "original_sources": json.dumps(q.get("original_sources", []))
     }
@@ -47,7 +46,6 @@ def flatten_for_chroma(q: dict, batch_type: str) -> dict:
         flat_meta["context_id"] = parent_ctx.get("context_id", "")
         flat_meta["context_type"] = parent_ctx.get("context_type", "")
         flat_meta["context_body"] = parent_ctx.get("context_body", "")
-        flat_meta["context_images"] = json.dumps(parent_ctx.get("context_images", []))
 
     # Flatten Metadata Hooks
     hooks = q.get("metadata_hooks")
@@ -134,10 +132,13 @@ def main():
                         
                     # 4. Build the Ultimate Context-Rich Embedding String
                     # We inject the hidden keywords at the bottom so the Vector Model reads them!
+                    image_desc_list = q.get("image_descriptions", [])
+                    image_desc_str = " ".join(image_desc_list) if isinstance(image_desc_list, list) else ""
                     combined_embed_text = (
                         f"Context: {context_text}\n\n"
                         f"Question: {q.get('question_text', '')}\n\n"
                         f"Concepts & Keywords: {keywords_str}\n"
+                        f"Image Context: {image_desc_str}\n"
                         f"Common Pitfall/Trap: {trap}"
                     ).strip()
 

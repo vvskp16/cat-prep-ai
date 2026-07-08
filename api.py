@@ -232,27 +232,16 @@ async def generate_test(payload: TestGenRequest):
             
         parent_context = None
         if str(meta.get("has_parent_context")).lower() == "true":
-            try:
-                ctx_imgs = json.loads(meta.get("context_images", "[]")) if meta.get("context_images") else []
-            except:
-                ctx_imgs = []
-                
             parent_context = {
                 "context_id": meta.get("context_id", ""),
                 "context_type": meta.get("context_type", "passage"),
-                "context_body": meta.get("context_body", ""),
-                "context_images": ctx_imgs
+                "context_body": meta.get("context_body", "")
             }
 
         try:
-            q_imgs = json.loads(meta.get("question_images", "[]")) if meta.get("question_images") else []
+            image_descriptions = json.loads(meta.get("image_descriptions", "[]")) if meta.get("image_descriptions") else []
         except Exception:
-            q_imgs = []
-            
-        try:
-            s_imgs = json.loads(meta.get("solution_images", "[]")) if meta.get("solution_images") else []
-        except Exception:
-            s_imgs = []
+            image_descriptions = []
 
         try:
             original_sources = json.loads(meta.get("original_sources", "[]")) if meta.get("original_sources") else []
@@ -268,12 +257,11 @@ async def generate_test(payload: TestGenRequest):
             "has_parent_context": str(meta.get("has_parent_context")).lower() == "true",
             "parent_context": parent_context,
             "question_text": meta.get("question_text", ""),
-            "question_images": q_imgs,
             "options": options_dict,
             "correct_answer": meta.get("correct_answer", ""),
             "solution_text": meta.get("solution_text", ""),
-            "solution_images": s_imgs,
             "original_sources": original_sources,
+            "image_descriptions": image_descriptions,
             "metadata_hooks": {
                 "trap_type": meta.get("trap_type", ""),
                 "difficulty": meta.get("difficulty", "Medium"),
@@ -463,14 +451,12 @@ async def search_questions(payload: SearchRequest):
                 parent_context = {
                     "context_id": meta.get("context_id", ""),
                     "context_type": meta.get("context_type", "passage"),
-                    "context_body": meta.get("context_body", ""),
-                    "context_images": json.loads(meta.get("context_images", "[]"))
+                    "context_body": meta.get("context_body", "")
                 }
 
-            question_images = json.loads(meta.get("question_images", "[]"))
-            solution_images = json.loads(meta.get("solution_images", "[]"))
             original_sources = json.loads(meta.get("original_sources", "[]"))
             semantic_keywords = json.loads(meta.get("semantic_keywords", "[]"))
+            image_descriptions = json.loads(meta.get("image_descriptions", "[]"))
 
             q_obj = {
                 "id": results["ids"][i],
@@ -480,14 +466,13 @@ async def search_questions(payload: SearchRequest):
                 "sub_topic": meta.get("sub_topic"),
                 "has_parent_context": str(meta.get("has_parent_context")).lower() == "true",
                 "parent_context": parent_context,
-                "question_text": meta.get("question_text", doc_body), 
-                "question_images": question_images,
+                "question_text": meta.get("question_text", doc_body),
                 "options": options_dict,
                 "correct_answer": meta.get("correct_answer", ""),
                 "solution_text": meta.get("solution_text", ""),
-                "solution_images": solution_images,
                 "original_sources": original_sources,
                 "semantic_keywords": semantic_keywords,
+                "image_descriptions": image_descriptions,
                 "metadata_hooks": {
                     "trap_type": meta.get("trap_type", ""),
                     "difficulty": meta.get("difficulty", "Medium"),

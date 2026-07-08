@@ -56,7 +56,8 @@ def extract_structured_cat_batch(
         "DO NOT use \\( or \\) wrappers.\n"
         "5. DIFFICULTY CONSISTENCY: The 'difficulty' (Literal) and 'difficulty_level' (Float) MUST strictly align. "
         "Use this exact mapping: 1.0 to 3.9 maps to 'Easy'. 4.0 to 6.9 maps to 'Medium'. 7.0 to 10.0 maps to 'Hard'. "
-        "Do not contradict these values (e.g., you cannot output 'Hard' with a 4.2 rating)."
+        "Do not contradict these values (e.g., you cannot output 'Hard' with a 4.2 rating).\n"
+        "6. IMAGE DESCRIPTIONS: If the workspace diagrams contain charts, tables, or geometry, provide a concise (max 50 words) description of the nature of the data in the 'image_descriptions' array (e.g., 'Radar chart depicting import tariff percentages across five countries'). DO NOT describe specific data points. If there are no images, return an empty array."
     )
 
     # Execute the OpenAI Structured Parse
@@ -104,11 +105,12 @@ def enrich_scraped_json_batch(model: str, scraped_json_data: dict, base64_images
         "(e.g., 'double-counting', 'unit-conversion', 'boundary-condition'). Provide exactly ONE dominant trap as a flat string.\n"
         "6. DIFFICULTY CONSISTENCY: The 'difficulty' (Literal) and 'difficulty_level' (Float) MUST strictly align. "
         "Use this exact mapping: 1.0 to 3.9 maps to 'Easy'. 4.0 to 6.9 maps to 'Medium'. 7.0 to 10.0 maps to 'Hard'. "
-        "Do not contradict these values (e.g., you cannot output 'Hard' with a 4.2 rating)."
+        "Do not contradict these values (e.g., you cannot output 'Hard' with a 4.2 rating).\n"
         "7. The numbers of questions in the output MUST match the input. "
-        "Example: If the input has 4 questions, the output must have 4 metadata objects."
-        "8. The semantic_keywords field MUST contain 3-5 specific keywords, they should identify the passage or question intent clearly" \
-        "if the question itself is small in a passage or set of questions, then add keywords as per parent context."
+        "Example: If the input has 4 questions, the output must have 4 metadata objects.\n"
+        "8. The semantic_keywords field MUST contain 3-5 specific keywords, they should identify the passage or question intent clearly "
+        "if the question itself is small in a passage or set of questions, then add keywords as per parent context.\n"
+        "9. IMAGE DESCRIPTIONS: If the workspace diagrams contain charts, tables, or geometry, provide a concise (max 50 words) description of the nature of the data in the 'image_descriptions' array (e.g., 'Radar chart depicting import tariff percentages across five countries'). DO NOT describe specific data points. If there are no images, return an empty array."
     )
 
     completion = client.beta.chat.completions.parse(

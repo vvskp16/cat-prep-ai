@@ -410,6 +410,16 @@ export default function ExtractionTester() {
                 />
               </div>
 
+              <div className="mb-4">
+                <label className="block text-xs text-slate-400 uppercase font-bold mb-1">Image Description Context (Max 50 Words)</label>
+                <textarea 
+                  value={q.image_descriptions ? q.image_descriptions.join('\n') : ''} 
+                  onChange={(e) => updateQuestion(idx, 'image_descriptions', e.target.value.split('\n').filter(s => s.trim() !== ''))} 
+                  className="w-full h-24 bg-slate-900 border border-amber-600/50 rounded p-3 text-sm focus:outline-none focus:border-amber-400 shadow-inner"
+                  placeholder="Enter conceptual image description for vector database..."
+                />
+              </div>
+
               <MarkdownEditor 
                 label="Solution Derivation (Optional)" 
                 value={q.solution_text || ''} 
