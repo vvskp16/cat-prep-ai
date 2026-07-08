@@ -1,124 +1,113 @@
-# batch_enricher.py
 import os
 import json
 import base64
 import uuid
+import re
 from pathlib import Path
-from data_models import CATExtractionBatch
 from ingestion import enrich_scraped_json_batch
 
 # Directory Configurations
-SOURCE_JSON_DIR = Path("./dev_scripts/extraction/extracted_json")
-IMAGE_DIR = Path("./cat-frontend/public")
-OUTPUT_DIR = Path("./chroma_ready_docs")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+SOURCE_JSON_DIR = Path("dev_scripts/extraction/extracted_json")
+IMAGE_DIR = Path("cat-frontend/public")
+OUTPUT_DIR = Path("chroma_ready_docs")
 
-MAX_RETRIES = 3
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def encode_image_to_base64(image_path: Path) -> str:
-    try:
-        if image_path.exists():
-            with open(image_path, "rb") as image_file:
-                return base64.b64encode(image_file.read()).decode('utf-8')
-    except Exception as e:
-        print(f"⚠️ Failed to encode image {image_path}: {e}")
-    return None
+def process_all_files():
+    json_files = list(SOURCE_JSON_DIR.glob("*.json"))
+    print(f"Found {len(json_files)} files to process.")
 
-def process_local_batch(file_path: Path, model: str = "gpt-4o-mini"):
-    print(f"\n📂 Processing File: {file_path.name}")
-    
-    with open(file_path, "r", encoding="utf-8") as f:
-        payload = json.load(f)
-
-    is_list = isinstance(payload, list)
-    batches_to_process = payload if is_list else [payload]
-    enriched_batches = []
-
-    for batch_idx, batch in enumerate(batches_to_process):
-        base64_images = []
-
-        # Gather Parent Context Images
-        if batch.get("parent_context") and "context_images" in batch["parent_context"]:
-            for img_rel_path in batch["parent_context"]["context_images"]:
-                full_path = IMAGE_DIR / img_rel_path.lstrip("/")
-                b64 = encode_image_to_base64(full_path)
-                if b64: base64_images.append(b64)
-
-        # Gather Question Specific Images
-        for q in batch.get("questions", []):
-            for img_rel_path in q.get("question_images", []):
-                full_path = IMAGE_DIR / img_rel_path.lstrip("/")
-                b64 = encode_image_to_base64(full_path)
-                if b64: base64_images.append(b64)
-
-        # --- RETRY LOOP INTEGRATION ---
-        llm_metadata = None
-        usage = None
-        target_q_count = len(batch.get("questions", []))
+    for file_path in json_files:
+        print(f"\nProcessing {file_path.name}...")
         
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                print(f"📡 Querying LLM for Batch {batch_idx} (Attempt {attempt}/{MAX_RETRIES})...")
-                llm_metadata, usage = enrich_scraped_json_batch(
-                    model=model,
-                    scraped_json_data=batch,
-                    base64_images=base64_images
-                )
-                
-                # Check sequence length matching guardrail
-                if len(llm_metadata.question_metadata_list) == target_q_count:
-                    break  # Valid length matched, break retry loop!
-                else:
-                    print(f"⚠️ Attempt {attempt} Mismatch: Expected {target_q_count} blocks, got {len(llm_metadata.question_metadata_list)}.")
-                    llm_metadata = None  # Reset state
-            except Exception as e:
-                print(f"⚠️ Attempt {attempt} Error: {e}")
-                llm_metadata = None
-
-        if not llm_metadata:
-            print(f"❌ Batch {batch_idx} of {file_path.name} failed after {MAX_RETRIES} attempts. Skipping.")
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                batches = json.load(f)
+        except Exception as e:
+            print(f"  ❌ Failed to read {file_path.name}: {e}")
             continue
 
-        # --- Zip & Merge Layer ---
-        shared_context_id = None
-        if batch.get("batch_type") == "SET" and batch.get("parent_context"):
-            shared_context_id = f"CTX_{uuid.uuid4().hex[:8].upper()}"
-            batch["parent_context"]["context_id"] = shared_context_id
+        output_data = []
 
-        for idx, question in enumerate(batch["questions"]):
-            ai_tags = llm_metadata.question_metadata_list[idx].model_dump()
-            question.update(ai_tags)
-
-            question["id"] = f"Q_{question['subject'].upper()}_{uuid.uuid4().hex[:8].upper()}"
-            question["question_type"] = "MCQ" if question.get("options") else "TITA"
+        for batch_idx, batch in enumerate(batches):
+            print(f"  -> Batch {batch_idx + 1}/{len(batches)}")
             
-            if shared_context_id:
-                question["has_parent_context"] = True
-                question["parent_context"] = batch["parent_context"]
-            else:
-                question["has_parent_context"] = False
-                question["parent_context"] = None
+            # 1. EXTRACT INLINE MARKDOWN IMAGES
+            image_paths = []
+            context_body = ""
+            if batch.get("parent_context"):
+                context_body = batch["parent_context"].get("context_body", "")
 
-        # Schema Verification Shield
-        try:
-            validated_batch = CATExtractionBatch(**batch)
-            enriched_batches.append(validated_batch.model_dump())
-            print(f"✅ Batch {batch_idx} compiled flawlessly. Tokens: {usage.total_tokens}")
-        except Exception as schema_error:
-            print(f"❌ Final Validation Dropped on batch {batch_idx}: {schema_error}")
+            for q in batch.get("questions", []):
+                question_text = q.get("question_text", "")
+                solution_text = q.get("solution_text", "")
+                
+                # Combine all text for this question block
+                combined_text = f"{context_body}\n{question_text}\n{solution_text}"
+                
+                # Pluck out the markdown image paths
+                found_paths = re.findall(r'!\[.*?\]\((/images/.*?\.png)\)', combined_text)
+                image_paths.extend(found_paths)
 
-    if enriched_batches:
+            # Deduplicate to save LLM tokens
+            unique_image_paths = list(set(image_paths))
+
+            # 2. ENCODE TO BASE64 FOR GPT-4o-MINI
+            base64_images = []
+            for path in unique_image_paths:
+                # Resolve the relative URL to your local filesystem
+                local_path = IMAGE_DIR / path.lstrip("/")
+                if local_path.exists():
+                    with open(local_path, "rb") as img_file:
+                        base64_images.append(base64.b64encode(img_file.read()).decode("utf-8"))
+                else:
+                    print(f"  ⚠️ Warning: Image not found locally -> {local_path}")
+
+            # 3. Call the LLM with the newly extracted images
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    # FIX 1: The function returns a tuple. We save it as raw_response.
+                    raw_response = enrich_scraped_json_batch(base64_images=base64_images, scraped_json_data=batch, model="gpt-5.4-mini")
+                    
+                    # Extract the actual Pydantic model (which is at index 0)
+                    metadata_payload = raw_response[0]
+                    
+                    # FIX 2: Use the correct Pydantic attribute: 'question_metadata_list'
+                    if len(metadata_payload.question_metadata_list) != len(batch.get("questions", [])):
+                        raise ValueError(f"Array length mismatch. Expected {len(batch.get('questions', []))} but got {len(metadata_payload.question_metadata_list)}.")
+                    
+                    # Merge metadata
+                    for idx, q_meta in enumerate(metadata_payload.question_metadata_list):
+                        batch["questions"][idx]["id"] = f"Q_{q_meta.subject.upper()}_{uuid.uuid4().hex[:8].upper()}"
+                        batch["questions"][idx]["subject"] = q_meta.subject
+                        batch["questions"][idx]["topic"] = q_meta.topic
+                        batch["questions"][idx]["sub_topic"] = q_meta.sub_topic
+                        batch["questions"][idx]["metadata_hooks"] = q_meta.metadata_hooks.model_dump()
+                        batch["questions"][idx]["semantic_keywords"] = q_meta.semantic_keywords
+                        
+                        batch["questions"][idx]["has_parent_context"] = True if batch.get("parent_context") else False
+                        batch["questions"][idx]["parent_context"] = batch.get("parent_context")
+
+                        # Generate the Vector DB combined text with injected Concept & Trap SEO 
+                        batch["questions"][idx]["combined_embed_text"] = f"{context_body}\n{batch['questions'][idx].get('question_text', '')}\nConcepts & Keywords: {', '.join(q_meta.semantic_keywords)}\nCore Trap: {q_meta.metadata_hooks.trap_type}"
+                    
+                    output_data.append(batch)
+                    print("     ✅ Successfully enriched.")
+                    break  # Success, exit retry loop
+                    
+                except Exception as e:
+                    print(f"     ⚠️ Attempt {attempt + 1} failed: {e}")
+                    if attempt == max_retries - 1:
+                        print(f"     ❌ Skipping batch {batch_idx + 1} after {max_retries} failures.")
+
+        # Save the enriched file
         output_file_path = OUTPUT_DIR / f"enriched_{file_path.name}"
-        with open(output_file_path, "w", encoding="utf-8") as out_f:
-            json.dump(enriched_batches if is_list else enriched_batches[0], out_f, indent=2, ensure_ascii=False)
-        print(f"💾 Stored dataset to: {output_file_path}")
-
-def run_pipeline():
-    print("🚀 Initializing Batch Processing Pipeline...")
-    json_files = list(SOURCE_JSON_DIR.glob("*.json"))
-    for file_path in json_files:
-        process_local_batch(file_path)
-    print("\n🏁 Process Completed!")
+        with open(output_file_path, "w", encoding="utf-8") as f:
+            json.dump(output_data, f, indent=4)
+        
+        print(f"✅ Saved enriched file to {output_file_path}")
 
 if __name__ == "__main__":
-    run_pipeline()
+    process_all_files()
+    print("\n🎉 Bulk Enrichment Pipeline Completed!")

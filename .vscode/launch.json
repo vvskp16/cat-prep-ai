@@ -15,6 +15,22 @@
             },
             "console": "integratedTerminal",
             "justMyCode": false,
+        },
+        {
+            "name": "Debug enrich cat papers",
+            "type": "debugpy",
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "request": "launch",
+            "program": "${workspaceFolder}/enrich_extracted_cat_papers.py",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "ROOT_DIR": "${workspaceFolder}",
+                "AUTHORIZATION_STRATEGY": "JWT",
+                "HEART_BEAT_INTERVAL": "30000",
+                "LOG_LEVEL": "DEBUG"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false,
         }
     ]
 }

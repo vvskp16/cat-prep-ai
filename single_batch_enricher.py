@@ -1,94 +1,99 @@
-# single_batch_enricher.py
-import argparse
+import os
 import json
 import base64
 import uuid
+import re
+import argparse
 from pathlib import Path
-from data_models import CATExtractionBatch
 from ingestion import enrich_scraped_json_batch
 
-SOURCE_JSON_DIR = Path("./dev_scripts/extraction/extracted_json")
-IMAGE_DIR = Path("./cat-frontend/public")
-OUTPUT_DIR = Path("./chroma_ready_docs")
+SOURCE_JSON_DIR = Path("dev_scripts/extraction/extracted_json")
+IMAGE_DIR = Path("cat-frontend/public")
+OUTPUT_DIR = Path("chroma_ready_docs")
 
-def encode_image_to_base64(image_path: Path) -> str:
-    if image_path.exists():
-        with open(image_path, "rb") as image_file:
-            return base64.b64encode(image_file.read()).decode('utf-8')
-    return None
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def main():
-    parser = argparse.ArgumentParser(description="Targeted Single Batch AI Tagging Utility")
-    parser.add_argument("--file", type=str, required=True, help="Filename (e.g. cat_2019_slot2.json)")
-    parser.add_argument("--batch", type=int, required=True, help="Specific batch array index to process (e.g. 0)")
-    parser.add_argument("--model", type=str, default="gpt-4o-mini", help="LLM selection")
-    args = parser.parse_args()
-
-    file_path = SOURCE_JSON_DIR / args.file
-    if not file_path.exists():
-        print(f"❌ File location not found: {file_path.absolute()}")
-        return
-
-    with open(file_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    batches = data if isinstance(data, list) else [data]
+def process_single_batch(file_name: str, target_batch_idx: int):
+    file_path = SOURCE_JSON_DIR / file_name
     
-    if args.batch < 0 or args.batch >= len(batches):
-        print(f"❌ Invalid Index: Provided file has {len(batches)} batches. Index {args.batch} is out of bounds.")
+    if not file_path.exists():
+        print(f"❌ File not found: {file_path}")
         return
 
-    batch = batches[args.batch]
-    print(f"🎯 Target Acquired: Processing batch {args.batch} inside {args.file}...")
+    print(f"\n🎯 Target Acquired: Processing batch {target_batch_idx} inside {file_name}...")
+    
+    with open(file_path, "r", encoding="utf-8") as f:
+        batches = json.load(f)
 
-    # Build Images
-    base64_images = []
-    if batch.get("parent_context") and "context_images" in batch["parent_context"]:
-        for img in batch["parent_context"]["context_images"]:
-            b64 = encode_image_to_base64(IMAGE_DIR / img.lstrip("/"))
-            if b64: base64_images.append(b64)
+    if target_batch_idx >= len(batches) or target_batch_idx < 0:
+        print(f"❌ Batch index {target_batch_idx} is out of range. File has {len(batches)} batches.")
+        return
+
+    batch = batches[target_batch_idx]
+
+    # 1. EXTRACT INLINE MARKDOWN IMAGES
+    image_paths = []
+    context_body = ""
+    if batch.get("parent_context"):
+        context_body = batch["parent_context"].get("context_body", "")
+
     for q in batch.get("questions", []):
-        for img in q.get("question_images", []):
-            b64 = encode_image_to_base64(IMAGE_DIR / img.lstrip("/"))
-            if b64: base64_images.append(b64)
-
-    # Call Model Direct
-    try:
-        llm_metadata, usage = enrich_scraped_json_batch(model=args.model, scraped_json_data=batch, base64_images=base64_images)
-    except Exception as e:
-        print(f"❌ LLM API Processing Error: {e}")
-        return
-
-    if len(llm_metadata.question_metadata_list) != len(batch.get("questions", [])):
-        print(llm_metadata.question_metadata_list)
-        print(batch.get("questions", []))
-        print(f"❌ Count Mismatch Error: Target requires {len(batch['questions'])} blocks but model returned {len(llm_metadata.question_metadata_list)}.")
-        return
-
-    # Stitch Block
-    shared_context_id = f"CTX_{uuid.uuid4().hex[:8].upper()}" if batch.get("batch_type") == "SET" else None
-    if shared_context_id and batch.get("parent_context"):
-        batch["parent_context"]["context_id"] = shared_context_id
-
-    for idx, question in enumerate(batch["questions"]):
-        question.update(llm_metadata.question_metadata_list[idx].model_dump())
-        question["id"] = f"Q_{question['subject'].upper()}_{uuid.uuid4().hex[:8].upper()}"
-        question["question_type"] = "MCQ" if question.get("options") else "TITA"
-        question["has_parent_context"] = shared_context_id is not None
-        question["parent_context"] = batch["parent_context"] if shared_context_id else None
-
-    # Structural Validation Check
-    try:
-        CATExtractionBatch(**batch)
-        print(f"🎉 Validation Flawless! Tokens Used: {usage.total_tokens}")
+        question_text = q.get("question_text", "")
+        solution_text = q.get("solution_text", "")
         
-        # Save standalone debugger target output
-        debug_out = OUTPUT_DIR / f"debug_enriched_{args.batch}_{args.file}"
-        with open(debug_out, "w", encoding="utf-8") as out_f:
-            json.dump(batch, out_f, indent=2, ensure_ascii=False)
-        print(f"💾 Single item successfully stored here: {debug_out}")
-    except Exception as validation_err:
-        print(f"❌ Data Schema Enforcement Rejection: {validation_err}")
+        # Combine all text for this question block
+        combined_text = f"{context_body}\n{question_text}\n{solution_text}"
+        
+        # Pluck out the markdown image paths
+        found_paths = re.findall(r'!\[.*?\]\((/images/.*?\.png)\)', combined_text)
+        image_paths.extend(found_paths)
+
+    # Deduplicate to save LLM tokens
+    unique_image_paths = list(set(image_paths))
+
+    # 2. ENCODE TO BASE64 FOR GPT-4o-MINI
+    base64_images = []
+    for path in unique_image_paths:
+        local_path = IMAGE_DIR / path.lstrip("/")
+        if local_path.exists():
+            with open(local_path, "rb") as img_file:
+                base64_images.append(base64.b64encode(img_file.read()).decode("utf-8"))
+        else:
+            print(f"  ⚠️ Warning: Image not found locally -> {local_path}")
+
+    # 3. Construct the text payload for the LLM
+    deterministic_ocr_text = json.dumps(batch, indent=2)
+
+    # 4. Call the LLM with the newly extracted images
+    try:
+        metadata_payload = enrich_scraped_json_batch(base64_images, deterministic_ocr_text)
+        
+        if len(metadata_payload.questions) != len(batch.get("questions", [])):
+            raise ValueError(f"Array length mismatch. Expected {len(batch.get('questions', []))} but got {len(metadata_payload.questions)}.")
+        
+        for idx, q_meta in enumerate(metadata_payload.questions):
+            batch["questions"][idx]["id"] = f"Q_{q_meta.subject.upper()}_{uuid.uuid4().hex[:8].upper()}"
+            batch["questions"][idx]["subject"] = q_meta.subject
+            batch["questions"][idx]["topic"] = q_meta.topic
+            batch["questions"][idx]["sub_topic"] = q_meta.sub_topic
+            batch["questions"][idx]["metadata_hooks"] = q_meta.metadata_hooks.model_dump()
+            
+            # Generate the Vector DB combined text
+            batch["questions"][idx]["combined_embed_text"] = f"{context_body}\n{batch['questions'][idx].get('question_text', '')}\nConcepts & Keywords: {', '.join(q_meta.semantic_keywords)}\nCore Trap: {q_meta.metadata_hooks.trap_type}"
+        
+        output_file_path = OUTPUT_DIR / f"debug_enriched_{file_name}_batch_{target_batch_idx}.json"
+        with open(output_file_path, "w", encoding="utf-8") as f:
+            json.dump([batch], f, indent=4)
+            
+        print(f"✅ Successfully enriched! Saved output to {output_file_path}")
+        
+    except Exception as e:
+        print(f"❌ Enrichment failed: {e}")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Enrich a single specific batch from a JSON file.")
+    parser.add_argument("--file", required=True, help="The filename of the JSON file (e.g., cat-2022-slot-1.json)")
+    parser.add_argument("--batch", required=True, type=int, help="The index of the batch to process (e.g., 14)")
+    
+    args = parser.parse_args()
+    process_single_batch(args.file, args.batch)

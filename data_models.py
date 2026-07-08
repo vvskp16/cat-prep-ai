@@ -2,84 +2,111 @@
 from typing import List, Optional, Literal, Dict, Any, Union
 from pydantic import BaseModel, Field, model_validator
 
+from typing import Literal, Union
 
-# Define the Absolute CAT Taxonomy
-
+# ==========================================
 # --- SUBJECT: QUANTITATIVE APTITUDE ---
+# ==========================================
 Quant_Topics = Literal[
     "Arithmetic", "Algebra", "Geometry & Mensuration", 
     "Number System", "Modern Math"
 ]
+
 Quant_SubTopics = Literal[
     # Arithmetic
     "Percentages", "Profit, Loss & Discount", "Simple & Compound Interest",
     "Ratio, Proportion & Variation", "Averages", "Mixtures & Alligations",
-    "Time & Work", "Time, Speed & Distance",
+    "Time & Work", "Pipes & Cisterns", "Time, Speed & Distance", "Races & Circular Tracks",
+    
     # Algebra
     "Linear Equations", "Quadratic Equations", "Higher Degree Polynomials",
-    "Inequalities", "Logarithms", "Functions & Graphs", "Maxima & Minima",
+    "Inequalities & Modulus", "Logarithms", "Surds & Indices", 
+    "Functions & Graphs", "Maxima & Minima",
+    
     # Geometry & Mensuration
     "Lines & Angles", "Triangles", "Circles", "Quadrilaterals & Polygons",
     "Coordinate Geometry", "Mensuration (2D & 3D)", "Trigonometry",
+    
     # Number System
     "Factors & Multiples (LCM/HCF)", "Remainders & Divisibility",
-    "Base Systems", "Digits & Properties", 
+    "Base Systems", "Digits & Properties", "Successive Division",
+    
     # Modern Math
     "Permutations & Combinations", "Probability", 
-    "Sequence & Series (AP/GP/HP)", "Set Theory",
+    "Sequence & Series (AP/GP/HP)", "Set Theory & Venn Diagrams",
+    
     # Escape Hatch
     "Miscellaneous Quant"
 ]
 
 
+# ==========================================
 # --- SUBJECT: DATA INTERPRETATION & LOGICAL REASONING ---
+# ==========================================
 DILR_Topics = Literal[
     "Data Interpretation", "Logical Reasoning", "DI-LR Hybrid"
 ]
+
 DILR_SubTopics = Literal[
     # Data Interpretation
     "Data Tables", "Bar Graphs", "Line Charts", "Pie Charts", 
     "Scatter Plots & Bubble Charts", "Radar/Spider Web Charts", 
-    "Caselets (Paragraph DI)", "Missing Data DI",
+    "Caselets (Paragraph DI)", "Missing Data DI", "Quant-Based DI",
+    
     # Logical Reasoning
     "Linear Arrangement", "Circular/Polygon Arrangement",
-    "Matrix & Grid Puzzles", "Blood Relations", "Direction Sense",
-    "Syllogisms & Logic Gates", "Cubes & Dices", "Cryptarithmetic",
+    "Matrix & Grid Puzzles", "Selection & Conditional Grouping",
+    "Blood Relations", "Direction Sense", "Syllogisms & Logic Gates", 
+    "Binary Logic (Truth & Lie)", "Cubes & Dices", "Cryptarithmetic",
+    "Sequential Output / Machine Input",
+    
     # Advanced / Hybrid
-    "Games & Tournaments", "Routes & Networks", "Scheduling", 
+    "Games & Tournaments", "Routes & Networks", "Scheduling & Timetables", 
     "Optimization & Max/Min", "Venn Diagrams (Multi-set)",
+    
     # Escape Hatch
     "Miscellaneous DILR"
 ]
 
 
+# ==========================================
 # --- SUBJECT: VERBAL ABILITY & READING COMPREHENSION ---
+# ==========================================
 VARC_Topics = Literal[
     "Reading Comprehension", "Verbal Ability"
 ]
+
 VARC_SubTopics = Literal[
     # Reading Comprehension (Question Types)
-    "Main Idea / Central Theme", "Specific Detail / Fact Based",
-    "Inference / Implication", "Tone / Attitude of Author",
-    "Structure / Organization", "Application of Idea", 
-    "Philosophy & Humanities",
-    "Psychology & Sociology",
-    "Science & Technology",
-    "History & Political Science",
-    "Ecology & Environment",
-    "Business & Economics",
-    "Art, Literature & Culture",
-    "Zoology & Biology",
-    "Miscellaneous RC",
+    "RC: Main Idea / Central Theme", "RC: Specific Detail / Fact Based",
+    "RC: Inference / Implication", "RC: Tone / Attitude of Author",
+    "RC: Structure / Organization", "RC: Application of Idea", 
+    
+    # Reading Comprehension (Genres/Passage Themes)
+    "RC Genre: Philosophy & Humanities",
+    "RC Genre: Psychology & Sociology",
+    "RC Genre: Science & Technology",
+    "RC Genre: History & Political Science",
+    "RC Genre: Ecology & Environment",
+    "RC Genre: Business & Economics",
+    "RC Genre: Art, Literature & Culture",
+    "RC Genre: Zoology & Biology",
+    
     # Verbal Ability
     "Para Jumbles (TITA)", "Para Jumbles (MCQ)",
     "Odd Sentence Out", "Para Summary", "Para Completion",
-    "Grammar & Usage", "Vocabulary & Context",
+    "Critical Reasoning (Assumptions/Strengthen/Weaken)",
+    "Fact, Inference, Judgment (FIJ)",
+    "Grammar & Sentence Correction", "Vocabulary & Word Usage",
+    "Fill in the Blanks",
+    
     # Escape Hatch
-    "Miscellaneous VA"
+    "Miscellaneous RC", "Miscellaneous VA"
 ]
 
-# Combine them for the master model
+# ==========================================
+# --- COMBINED MASTER TYPES ---
+# ==========================================
 All_Topics = Union[Quant_Topics, DILR_Topics, VARC_Topics]
 All_SubTopics = Union[Quant_SubTopics, DILR_SubTopics, VARC_SubTopics]
 

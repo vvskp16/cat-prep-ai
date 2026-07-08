@@ -25,29 +25,6 @@ HEADERS = {
 
 CAT_URLS = [
     "https://cracku.in/cat-2025-slot-1-question-paper-solved",
-    "https://cracku.in/cat-2025-slot-2-question-paper-solved",
-    "https://cracku.in/cat-2025-slot-3-question-paper-solved",
-    "https://cracku.in/cat-2024-slot-1-question-paper-solved",
-    "https://cracku.in/cat-2024-slot-2-question-paper-solved",
-    "https://cracku.in/cat-2024-slot-3-question-paper-solved",
-    "https://cracku.in/cat-2023-slot-1-question-paper-solved",
-    "https://cracku.in/cat-2023-slot-2-question-paper-solved",
-    "https://cracku.in/cat-2023-slot-3-question-paper-solved",
-    "https://cracku.in/cat-2022-slot-1-question-paper-solved",
-    "https://cracku.in/cat-2022-slot-2-question-paper-solved",
-    "https://cracku.in/cat-2022-slot-3-question-paper-solved",
-    "https://cracku.in/cat-2021-slot-1-question-paper-solved",
-    "https://cracku.in/cat-2021-slot-2-question-paper-solved",
-    "https://cracku.in/cat-2021-slot-3-question-paper-solved",
-    "https://cracku.in/cat-2020-slot-1-question-paper-solved",
-    "https://cracku.in/cat-2020-slot-2-question-paper-solved",
-    "https://cracku.in/cat-2020-slot-3-question-paper-solved",
-    "https://cracku.in/cat-2019-slot-1-question-paper-solved",
-    "https://cracku.in/cat-2019-slot-2-question-paper-solved",
-    "https://cracku.in/cat-2018-slot-1-question-paper-solved",
-    "https://cracku.in/cat-2018-slot-2-question-paper-solved",
-    "https://cracku.in/cat-2017-shift-1-question-paper-solved",
-    "https://cracku.in/cat-2017-shift-2-question-paper-solved"
 ]
 
 # ==========================================
@@ -80,17 +57,16 @@ def download_and_save_image(img_url: str) -> str:
         print(f"  [!] Failed to download image {img_url}: {e}")
         return ""
 
-def extract_content_with_inline_images(soup: BeautifulSoup, html_node):
-    if not html_node: return "", []
-        
-    extracted_images = []
+def extract_content_with_inline_images(soup: BeautifulSoup, html_node) -> str:
+    """Extracts text while strictly embedding images as inline Markdown."""
+    if not html_node: return ""
     
     for img in html_node.find_all('img'):
         img_url = img.get('src')
         local_path = download_and_save_image(img_url)
         
         if local_path:
-            extracted_images.append(local_path)
+            # Replaces the HTML element directly with a Markdown equivalent
             markdown_img = soup.new_string(f"\n\n![Diagram]({local_path})\n\n")
             img.replace_with(markdown_img)
         else:
@@ -98,7 +74,7 @@ def extract_content_with_inline_images(soup: BeautifulSoup, html_node):
             
     raw_text = html_node.get_text(separator="\n", strip=True)
     clean_text = re.sub(r'\n{3,}', '\n\n', raw_text).replace('\xa0', ' ')
-    return clean_text, extracted_images
+    return clean_text
 
 # ==========================================
 # PHASE 1: FETCHING SCRIPT
@@ -164,22 +140,19 @@ def process_all_raw_files():
         for el in elements:
             # 1. HANDLE CONTEXT
             if el.name == 'div':
-                text = el.get_text(separator="\n", strip=True)
+                raw_text = el.get_text(separator="\n", strip=True)
                 flush_batch()
                 
-                if "answer them individually" in text.lower() or "stand alone" in text.lower():
+                if "answer them individually" in raw_text.lower() or "stand alone" in raw_text.lower():
                     current_context = None
                 else:
-                    context_images = []
-                    for img in el.find_all('img'):
-                        img_path = download_and_save_image(img.get('src'))
-                        if img_path: context_images.append(img_path)
-                        
+                    # FIX: Pass the passage element through the markdown embedding function
+                    context_body = extract_content_with_inline_images(soup, el)
+                    
                     current_context = {
                         "context_id": f"CTX_{uuid.uuid4().hex[:8].upper()}",
                         "context_type": "passage",
-                        "context_body": text,
-                        "context_images": context_images
+                        "context_body": clean_math_tags(context_body)
                     }
                     
             # 2. HANDLE QUESTION
@@ -187,10 +160,8 @@ def process_all_raw_files():
                 q_data = {}
                 
                 q_text_div = el.find('div', class_='question-text')
-                q_text, q_images = extract_content_with_inline_images(soup, q_text_div)
-
+                q_text = extract_content_with_inline_images(soup, q_text_div)
                 q_data['question_text'] = clean_math_tags(q_text) if q_text != "" else "MISSING_TEXT"
-                q_data['question_images'] = q_images
                 
                 options_box = el.find('div', class_='options-box')
                 if options_box:
@@ -205,7 +176,8 @@ def process_all_raw_files():
                         opt_letter = opt_no_span.get_text(strip=True) if opt_no_span else opt_idx
                         
                         opt_content = btn.find('div', class_='option-content')
-                        raw_opt_text = opt_content.get_text(separator="\n", strip=True) if opt_content else ""
+                        # Run options through inline image extractor just in case
+                        raw_opt_text = extract_content_with_inline_images(soup, opt_content) if opt_content else ""
                         options[opt_letter] = clean_math_tags(raw_opt_text)
                         
                         if opt_idx == correct_option_idx: correct_letter = opt_letter
@@ -226,12 +198,10 @@ def process_all_raw_files():
                 sol_container = soup.find('div', id=f'explanation{qid}')
                 if sol_container:
                     sol_div = sol_container.find('div', class_='solution-body')
-                    sol_text, sol_images = extract_content_with_inline_images(soup, sol_div)
+                    sol_text = extract_content_with_inline_images(soup, sol_div)
                     q_data['solution_text'] = clean_math_tags(sol_text) if sol_text != "" else "MISSING_SOLUTION_TEXT"
-                    q_data['solution_images'] = sol_images
                 else:
                     q_data['solution_text'] = "MISSING_SOLUTION_TEXT"
-                    q_data['solution_images'] = []
                 
                 sources = []
                 for a in el.find_all('a', href=True):

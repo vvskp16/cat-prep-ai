@@ -107,8 +107,8 @@ def enrich_scraped_json_batch(model: str, scraped_json_data: dict, base64_images
         "Do not contradict these values (e.g., you cannot output 'Hard' with a 4.2 rating)."
         "7. The numbers of questions in the output MUST match the input. "
         "Example: If the input has 4 questions, the output must have 4 metadata objects."
-        "8. The semantic_keywords field MUST contain 3-5 specific keywords, they should identify the question intent clearly" \
-        "if the question itself is small in a passage or set of questions. Add keywords as per parent context."
+        "8. The semantic_keywords field MUST contain 3-5 specific keywords, they should identify the passage or question intent clearly" \
+        "if the question itself is small in a passage or set of questions, then add keywords as per parent context."
     )
 
     completion = client.beta.chat.completions.parse(
