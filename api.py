@@ -2,6 +2,7 @@
 import io
 import os
 from random import shuffle
+import random
 import uuid
 import base64
 import json
@@ -115,6 +116,7 @@ async def extract_test_data(
             "total_tokens": token_usage.total_tokens
         }
     }
+
 import re
 
 @app.post("/api/approve")
@@ -247,12 +249,13 @@ class TestGenRequest(BaseModel):
     topic: Optional[str] = None
     sub_topic: Optional[str] = None
     question_type: Optional[str] = None
+    sort: Optional[str] = "random" # Added explicit support for sorting
 
 @app.post("/api/generate-test")
 async def generate_test(payload: TestGenRequest):
     print(f"✅ Successfully received JSON payload: {payload.model_dump()}")
     
-    # Build your ChromaDB Where Clause
+    # 1. Build your ChromaDB Where Clause
     and_conditions = []
     if payload.subject: and_conditions.append({"subject": {"$eq": payload.subject}})
     if payload.topic: and_conditions.append({"topic": {"$eq": payload.topic}})
@@ -261,26 +264,23 @@ async def generate_test(payload: TestGenRequest):
     if payload.max_difficulty_level is not None: and_conditions.append({"difficulty_level": {"$lte": payload.max_difficulty_level}})
     if payload.question_type: and_conditions.append({"question_type": {"$eq": payload.question_type}})
 
-
     where_filter = None
     if len(and_conditions) == 1: where_filter = and_conditions[0]
     elif len(and_conditions) > 1: where_filter = {"$and": and_conditions}
 
-    results = collection.get(where=where_filter, limit=payload.limit)
+    # Fetch a larger pool to allow sorting and intelligent set-expansion
+    results = collection.get(where=where_filter, limit=200)
     
     if not results or not results.get("ids"):
         return {"questions": []}
 
-    # 1. Parse all 100 returned items first so we have the siblings available
-    all_parsed = []
-    for meta in results["metadatas"]:
+    # 2. Helper function to parse ChromaDB metadata into your JSON schema
+    def parse_meta(meta, doc_id, doc_body=""):
         options_dict = None
         if meta.get("question_type") == "MCQ":
             options_dict = {
-                "A": meta.get("option_A", ""),
-                "B": meta.get("option_B", ""),
-                "C": meta.get("option_C", ""),
-                "D": meta.get("option_D", "")
+                "A": meta.get("option_A", ""), "B": meta.get("option_B", ""),
+                "C": meta.get("option_C", ""), "D": meta.get("option_D", "")
             }
             
         parent_context = None
@@ -296,15 +296,15 @@ async def generate_test(payload: TestGenRequest):
         except Exception:
             original_sources = []
 
-        q_obj = {
-            "id": meta.get("id"),
+        return {
+            "id": doc_id,
             "subject": meta.get("subject"),
             "question_type": meta.get("question_type"),
             "topic": meta.get("topic"),
             "sub_topic": meta.get("sub_topic"),
             "has_parent_context": str(meta.get("has_parent_context")).lower() == "true",
             "parent_context": parent_context,
-            "question_text": meta.get("question_text", ""),
+            "question_text": meta.get("question_text", doc_body),
             "options": options_dict,
             "correct_answer": meta.get("correct_answer", ""),
             "solution_text": meta.get("solution_text", ""),
@@ -316,38 +316,55 @@ async def generate_test(payload: TestGenRequest):
                 "calculation_intensity": meta.get("calculation_intensity", "Medium")
             }
         }
-        all_parsed.append(q_obj)
 
-    # --- CONTIGUOUS CASELET PROTECTION STRATEGY ---
-    base_pool = all_parsed[:payload.limit]
-    
-    # 2. Identify Target Contexts in strict order
-    target_context_ids = []
-    for q in base_pool:
-        if q.get("has_parent_context") and q.get("parent_context"):
-            ctx_id = q["parent_context"]["context_id"]
-            if ctx_id not in target_context_ids:
-                target_context_ids.append(ctx_id)
-
+    # 3. Parse and Sort the Initial Pool
+    all_parsed = []
+    for idx, meta in enumerate(results["metadatas"]):
+        all_parsed.append(parse_meta(meta, results["ids"][idx], results["documents"][idx] if results.get("documents") else ""))
+        
+    # Apply user-requested sorting
+    if payload.sort == "difficulty_asc":
+        all_parsed.sort(key=lambda x: x["metadata_hooks"]["difficulty_level"])
+    elif payload.sort == "difficulty_desc":
+        all_parsed.sort(key=lambda x: x["metadata_hooks"]["difficulty_level"], reverse=True)
+    else:
+        random.shuffle(all_parsed) # Default random behavior
+        
+    # 4. Intelligent Set Expansion & Truncation
     final_questions = []
     added_ids = set()
-
-    # Step A: Append all sets contiguously (Groups all sibling questions together)
-    for ctx_id in target_context_ids:
-        for q in all_parsed:
-            if q.get("has_parent_context") and q.get("parent_context"):
-                if q["parent_context"]["context_id"] == ctx_id:
-                    if q["id"] not in added_ids:
-                        final_questions.append(q)
-                        added_ids.add(q["id"])
-
-    # Step B: Append the standalone questions strictly from the base pool
-    for q in base_pool:
-        if not q.get("has_parent_context"):
-            if q["id"] not in added_ids:
-                final_questions.append(q)
-                added_ids.add(q["id"])
-
+    
+    for q in all_parsed:
+        # Enforce payload limit. 
+        # (If the limit is 5 and we add a set of 4, we'll hit 6, which is desired. We break on the *next* iteration).
+        if len(final_questions) >= payload.limit:
+            break
+            
+        if q["id"] in added_ids:
+            continue
+            
+        if q.get("has_parent_context") and q.get("parent_context"):
+            # 🚀 CORE FIX: Fetch ALL siblings for the set explicitly, bypassing the previous filters
+            ctx_id = q["parent_context"]["context_id"]
+            siblings_results = collection.get(where={"context_id": {"$eq": ctx_id}})
+            
+            if siblings_results and siblings_results.get("ids"):
+                siblings_parsed = []
+                for s_idx, s_meta in enumerate(siblings_results["metadatas"]):
+                    siblings_parsed.append(parse_meta(s_meta, siblings_results["ids"][s_idx], siblings_results["documents"][s_idx] if siblings_results.get("documents") else ""))
+                    
+                # Sort siblings chronologically by ID to maintain correct reading order
+                siblings_parsed.sort(key=lambda x: x["id"])
+                
+                for sibling in siblings_parsed:
+                    if sibling["id"] not in added_ids:
+                        final_questions.append(sibling)
+                        added_ids.add(sibling["id"])
+        else:
+            # It's a standard standalone question
+            final_questions.append(q)
+            added_ids.add(q["id"])
+            
     return {"questions": final_questions}
 
 @app.get("/api/taxonomy")

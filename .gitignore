@@ -235,7 +235,6 @@ dev_scripts/extraction/extracted_json - Copy/
 test.json
 ingestion_output.txt
 chroma_ready_docs.zip
-chroma_ready_docs_1.zip
 *.txt
 chroma_db_bkp
 cat-frontend/public/images_1/

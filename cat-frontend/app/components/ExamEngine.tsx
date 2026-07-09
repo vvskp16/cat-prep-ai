@@ -72,6 +72,10 @@ export default function ExamEngine({
       if (timeLeft <= 0 && !isSubmitted) submitExam();
       return;
     }
+    
+    // 🛑 Pause the timer when the exit modal is open
+    if (showExitModal) return;
+
     const timer = setInterval(() => {
       setTimeLeft((prev) => prev - 1);
       setTimeSpent((prev) => ({
@@ -79,8 +83,9 @@ export default function ExamEngine({
         [currentQuestion.id]: (prev[currentQuestion.id] || 0) + 1
       }));
     }, 1000);
+    
     return () => clearInterval(timer);
-  }, [timeLeft, isSubmitted, currentQuestion.id]);
+  }, [timeLeft, isSubmitted, currentQuestion.id, showExitModal]);
 
   useEffect(() => {
     if (isSubmitted) return;

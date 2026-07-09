@@ -48,8 +48,21 @@ function TestExamContent() {
         const sub_topic = searchParams.get('sub_topics') || searchParams.get('sub_topic');
         if (sub_topic) cleanConfig.sub_topic = sub_topic;
 
+        // Extract Advanced Filters and append them to payload
+        const sort = searchParams.get('sort');
+        if (sort) cleanConfig.sort = sort;
+
+        const questionType = searchParams.get('question_type');
+        if (questionType) cleanConfig.question_type = questionType;
+
+        const trapType = searchParams.get('trap_type');
+        if (trapType) cleanConfig.trap_type = trapType;
+
+        const calcIntensity = searchParams.get('calculation_intensity');
+        if (calcIntensity) cleanConfig.calculation_intensity = calcIntensity;
+
         const rawResponse = await generatePracticeTest(cleanConfig);
-        if (rawResponse && rawResponse.questions) {
+        if (rawResponse?.questions) {
           setTestPayload(rawResponse.questions);
         } else {
           setTestPayload(rawResponse as unknown as Question[]);

@@ -353,8 +353,9 @@ export default function EnhancedTestGenerator() {
                   <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1"><ArrowDownUp className="w-3.5 h-3.5 text-green-600" /> Sort Difficulty</label>
                   <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} className="w-full text-xs p-2.5 rounded-lg bg-gray-50 border border-gray-200">
                     <option value="random">Shuffle (Random)</option>
-                    <option value="asc">Ascending (Easiest First)</option>
-                    <option value="desc">Descending (Hardest First)</option>
+                    {/* 🚀 FIX: Updated values to perfectly match the FastAPI endpoint */}
+                    <option value="difficulty_asc">Ascending (Easiest First)</option>
+                    <option value="difficulty_desc">Descending (Hardest First)</option>
                   </select>
                 </div>
                 <div className="space-y-2">
