@@ -1,6 +1,7 @@
 import os
 import glob
 import json
+import re
 import shutil
 import chromadb
 from chromadb.utils import embedding_functions
@@ -114,38 +115,17 @@ def main():
                     if not q_id:
                         continue # Skip invalid questions without IDs
                         
-                    # --- The Golden Rule of Embedding ---
-                    # --- The Golden Rule of Embedding ---
-                    # 1. Grab the Context (if any)
-                    context_text = ""
-                    if q.get("has_parent_context") and q.get("parent_context"):
-                        context_text = q["parent_context"].get("context_body", "")
-                        
-                    # 2. Grab the AI-Generated Semantic Keywords
-                    keywords_list = q.get("semantic_keywords", [])
-                    keywords_str = ", ".join(keywords_list) if isinstance(keywords_list, list) else ""
-                    
-                    # 3. Grab the Trap Type
-                    trap = ""
-                    if q.get("metadata_hooks"):
-                        trap = q["metadata_hooks"].get("trap_type", "")
-                        
-                    # 4. Build the Ultimate Context-Rich Embedding String
-                    # We inject the hidden keywords at the bottom so the Vector Model reads them!
-                    image_desc_list = q.get("image_descriptions", [])
-                    image_desc_str = " ".join(image_desc_list) if isinstance(image_desc_list, list) else ""
-                    combined_embed_text = (
-                        f"Subject: {q.get('subject', '')}\n"
-                        f"Topic: {q.get('topic', '')}\n"
-                        f"Sub Topic: {q.get('sub_topic', '')}\n"
-                        f"Context: {context_text}\n\n"
-                        f"Question: {q.get('question_text', '')}\n\n"
-                        f"Concepts & Keywords: {keywords_str}\n"
-                        f"Image Context: {image_desc_str}\n"
-                        f"Common Pitfall/Trap: {trap}"
-                    ).strip()
+                    # Use the pre-calculated `combined_embed_text` produced
+                    # by the enrichment step. The enricher is responsible for
+                    # injecting image descriptions inline and formatting.
+                    combined_embed_text = q.get("combined_embed_text", "")
 
-                    # Flatten all fields for storage
+                    if not combined_embed_text:
+                        print(f"⚠️ Warning: Missing combined_embed_text for {q_id}")
+                        continue
+
+                    # Flatten all fields for storage (we still keep full image_descriptions
+                    # serialized in metadata so the frontend/editor can inspect them).
                     flat_meta = flatten_for_chroma(q, batch_type)
 
                     ids.append(q_id)

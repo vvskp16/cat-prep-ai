@@ -90,17 +90,55 @@ def process_all_files():
                         batch["questions"][idx]["has_parent_context"] = True if batch.get("parent_context") else False
                         batch["questions"][idx]["parent_context"] = batch.get("parent_context")
 
-                        image_desc_text = " ".join(q_meta.image_descriptions or [])
+                        # --- INLINE IMAGE DESCRIPTION INJECTION ---
+                        # We replace markdown image tags in the visible text with
+                        # the AI-generated descriptions so the enriched JSON
+                        # contains exactly what the embedding model will see.
+                        desc_list = list(q_meta.image_descriptions or [])
+
+                        def truncate_desc(text: str, max_words: int = 50) -> str:
+                            parts = str(text).split()
+                            return " ".join(parts[:max_words]).strip()
+
+                        it = iter(desc_list)
+                        consumed = 0
+
+                        def inject_description(match):
+                            nonlocal consumed
+                            try:
+                                d = next(it)
+                                consumed += 1
+                                return f"[Image Description: {truncate_desc(d)}]"
+                            except StopIteration:
+                                return "[Image]"
+
+                        raw_text = (
+                            f"Context: {context_body}\n"
+                            f"Question: {batch['questions'][idx].get('question_text', '')}"
+                        )
+
+                        inline_text = re.sub(r"!\[.*?\]\([^)]+\)", inject_description, raw_text)
+
+                        # Append any leftover descriptions if there were more
+                        # descriptions returned by the model than markdown tags.
+                        if consumed < len(desc_list):
+                            leftover = " ".join(f"[Image Description: {truncate_desc(d)}]" for d in desc_list[consumed:])
+                            inline_text = f"{inline_text}\n\n{leftover}"
+
                         batch["questions"][idx]["combined_embed_text"] = (
                             f"Subject: {q_meta.subject}\n"
                             f"Topic: {q_meta.topic}\n"
                             f"Sub Topic: {q_meta.sub_topic}\n"
-                            f"Context: {context_body}\n"
-                            f"Question: {batch['questions'][idx].get('question_text', '')}\n"
+                            f"{inline_text}\n\n"
                             f"Concepts & Keywords: {', '.join(q_meta.semantic_keywords)}\n"
-                            f"Image Context: {image_desc_text}\n"
                             f"Core Trap: {q_meta.metadata_hooks.trap_type}"
                         ).strip()
+
+                        # Remove the raw array from the final JSON to avoid
+                        # redundancy and metadata bloat now that descriptions
+                        # are inlined into `combined_embed_text`.
+                        if "image_descriptions" in batch["questions"][idx]:
+                            del batch["questions"][idx]["image_descriptions"]
                     
                     output_data.append(batch)
                     print("     ✅ Successfully enriched.")
