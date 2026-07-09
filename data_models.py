@@ -193,7 +193,7 @@ class LLMQuestionMetadata(BaseModel):
         description="Extract 3-5 specific keywords from the problem (e.g., 'Trains', 'Relative Speed', 'Upstream')."
     )
     image_descriptions: List[str] = Field(
-        description="For each image in the question/context, provide a conceptual description (max 50 words) of the nature of the data. Focus on structure (e.g., 'Radar chart depicting import tariff percentages across five countries'). Leave empty if no images."
+        description="For EVERY individual image/chart present in the text, provide exactly ONE conceptual description (max 50 words) of the nature of the data. If there are 2 images, return exactly 2 distinct strings in this array. Focus on structure. Leave empty if no images."
     )
 
 class LLMBatchEnrichment(BaseModel):

@@ -29,7 +29,6 @@ def flatten_for_chroma(q: dict, batch_type: str) -> dict:
         "solution_text": q.get("solution_text", ""),
         
         # Arrays to Strings
-        "image_descriptions": json.dumps(q.get("image_descriptions", [])),
         "semantic_keywords": json.dumps(q.get("semantic_keywords", [])),
         "original_sources": json.dumps(q.get("original_sources", []))
     }

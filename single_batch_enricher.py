@@ -61,12 +61,23 @@ def process_single_batch(file_name: str, target_batch_idx: int):
         else:
             print(f"  ⚠️ Warning: Image not found locally -> {local_path}")
 
-    # 3. Construct the text payload for the LLM
-    deterministic_ocr_text = json.dumps(batch, indent=2)
-
-    # 4. Call the LLM with the newly extracted images
+    # 3. Call the LLM with the newly extracted images
     try:
-        metadata_payload, _ = enrich_scraped_json_batch("gpt-5.4-mini", batch, base64_images)
+        # Unpack both the payload and the token usage
+        metadata_payload, token_usage = enrich_scraped_json_batch("gpt-5.4-mini", batch, base64_images)
+
+        # --- COST CALCULATION ---
+        input_tokens = token_usage.prompt_tokens
+        output_tokens = token_usage.completion_tokens
+        
+        # Calculate USD and convert to INR (Assuming ₹84 per $)
+        cost_usd = (input_tokens / 1_000_000) * 0.75 + (output_tokens / 1_000_000) * 4.50
+        cost_inr = cost_usd * 84.0
+        
+        # Print metrics to terminal
+        print(f"  📊 Tokens: {input_tokens} Input | {output_tokens} Output")
+        print(f"  💸 Batch Cost: ₹{cost_inr:.4f}")
+        # ------------------------
 
         if len(metadata_payload.questions) != len(batch.get("questions", [])):
             raise ValueError(f"Array length mismatch. Expected {len(batch.get('questions', []))} but got {len(metadata_payload.questions)}.")

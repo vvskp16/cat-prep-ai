@@ -114,19 +114,68 @@ async def extract_test_data(
             "total_tokens": token_usage.total_tokens
         }
     }
+import re
 
-# NEW: The Approval Endpoint
 @app.post("/api/approve")
 async def approve_and_save_document(question_data: dict):
     """
-    Receives approved JSON from the UI and saves it as a flat file 
-    in the dedicated ChromaDB staging folder.
+    Receives approved JSON from the UI, injects image descriptions inline, 
+    builds the embedding text, and saves it to the staging folder.
     """
     question_id = question_data.get("id", f"UNKNOWN_{uuid.uuid4().hex[:8]}")
-    file_path = os.path.join(CHROMA_DOCS_DIR, f"{question_id}.json")
     
+    # 1. Extract context and set up iterator
+    context_body = ""
+    if question_data.get("has_parent_context") and question_data.get("parent_context"):
+        context_body = question_data["parent_context"].get("context_body", "")
+
+    desc_list = list(question_data.get("image_descriptions", []))
+    
+    def truncate_desc(text: str, max_words: int = 50) -> str:
+        return " ".join(str(text).split()[:max_words]).strip()
+
+    it = iter(desc_list)
+    consumed = 0
+
+    def inject_description(match):
+        nonlocal consumed
+        try:
+            d = next(it)
+            consumed += 1
+            return f"[Image Description: {truncate_desc(d)}]"
+        except StopIteration:
+            return "[Image]"
+
+    # 2. Combine text and run inline replacement
+    raw_text = f"Context: {context_body}\nQuestion: {question_data.get('question_text', '')}"
+    inline_text = re.sub(r"!\[.*?\]\([^)]+\)", inject_description, raw_text)
+
+    # 3. Append leftovers (if the LLM output more descriptions than markdown tags)
+    if consumed < len(desc_list):
+        leftover = " ".join(f"[Image Description: {truncate_desc(d)}]" for d in desc_list[consumed:])
+        inline_text = f"{inline_text}\n\n{leftover}"
+
+    # 4. Build the final embedding string
+    semantic_kw = ", ".join(question_data.get("semantic_keywords", []))
+    trap = question_data.get("metadata_hooks", {}).get("trap_type", "")
+    
+    question_data["combined_embed_text"] = (
+        f"Subject: {question_data.get('subject', '')}\n"
+        f"Topic: {question_data.get('topic', '')}\n"
+        f"Sub Topic: {question_data.get('sub_topic', '')}\n"
+        f"{inline_text}\n\n"
+        f"Concepts & Keywords: {semantic_kw}\n"
+        f"Core Trap: {trap}"
+    ).strip()
+
+    # 5. Purge the obsolete array
+    if "image_descriptions" in question_data:
+        del question_data["image_descriptions"]
+
+    # 6. Save the finalized schema
+    file_path = os.path.join(CHROMA_DOCS_DIR, f"{question_id}.json")
     async with aiofiles.open(file_path, "w", encoding="utf-8") as f:
-        json.dump(question_data, f, indent=4)
+        await f.write(json.dumps(question_data, indent=4))
         
     return {"status": "Success", "saved_path": file_path, "id": question_id}
 
@@ -239,11 +288,6 @@ async def generate_test(payload: TestGenRequest):
             }
 
         try:
-            image_descriptions = json.loads(meta.get("image_descriptions", "[]")) if meta.get("image_descriptions") else []
-        except Exception:
-            image_descriptions = []
-
-        try:
             original_sources = json.loads(meta.get("original_sources", "[]")) if meta.get("original_sources") else []
         except Exception:
             original_sources = []
@@ -261,7 +305,6 @@ async def generate_test(payload: TestGenRequest):
             "correct_answer": meta.get("correct_answer", ""),
             "solution_text": meta.get("solution_text", ""),
             "original_sources": original_sources,
-            "image_descriptions": image_descriptions,
             "metadata_hooks": {
                 "trap_type": meta.get("trap_type", ""),
                 "difficulty": meta.get("difficulty", "Medium"),
@@ -456,7 +499,6 @@ async def search_questions(payload: SearchRequest):
 
             original_sources = json.loads(meta.get("original_sources", "[]"))
             semantic_keywords = json.loads(meta.get("semantic_keywords", "[]"))
-            image_descriptions = json.loads(meta.get("image_descriptions", "[]"))
 
             q_obj = {
                 "id": results["ids"][i],
@@ -472,7 +514,6 @@ async def search_questions(payload: SearchRequest):
                 "solution_text": meta.get("solution_text", ""),
                 "original_sources": original_sources,
                 "semantic_keywords": semantic_keywords,
-                "image_descriptions": image_descriptions,
                 "metadata_hooks": {
                     "trap_type": meta.get("trap_type", ""),
                     "difficulty": meta.get("difficulty", "Medium"),
