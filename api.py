@@ -9,6 +9,7 @@ from datetime import datetime
 import aiofiles
 from fastapi import FastAPI, Form, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+import openai
 import pytesseract
 import chromadb
 from data_models import CATExtractionBatch, CATUnifiedQuestion, TestGenerationRequest
@@ -255,14 +256,17 @@ async def generate_test(payload: TestGenRequest):
     and_conditions = []
     if payload.subject: and_conditions.append({"subject": {"$eq": payload.subject}})
     if payload.topic: and_conditions.append({"topic": {"$eq": payload.topic}})
+    if payload.sub_topic: and_conditions.append({"sub_topic": {"$eq": payload.sub_topic}})
     if payload.min_difficulty_level is not None: and_conditions.append({"difficulty_level": {"$gte": payload.min_difficulty_level}})
     if payload.max_difficulty_level is not None: and_conditions.append({"difficulty_level": {"$lte": payload.max_difficulty_level}})
+    if payload.question_type: and_conditions.append({"question_type": {"$eq": payload.question_type}})
+
 
     where_filter = None
     if len(and_conditions) == 1: where_filter = and_conditions[0]
     elif len(and_conditions) > 1: where_filter = {"$and": and_conditions}
 
-    results = collection.get(where=where_filter, limit=100) 
+    results = collection.get(where=where_filter, limit=payload.limit)
     
     if not results or not results.get("ids"):
         return {"questions": []}
@@ -567,45 +571,127 @@ from typing import Optional
 class SemanticSearchRequest(BaseModel):
     query: str
     limit: int = 10
+
+# Initialize standard OpenAI client if not already done globally
+openai_client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+def expand_search_query(user_query: str) -> str:
+    """Uses LLM to expand abbreviations using CAT taxonomy, preventing literal noun hallucination."""
+    try:
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system", 
+                    "content": (
+                        "You are a search query optimizer for a CAT exam database. "
+                        "Translate student shorthand into precise mathematical or logical concepts. "
+                        "Context mappings: 'P&C' -> 'Permutation and Combination', 'TSD' -> 'Time Speed Distance'. "
+                        "CRITICAL RULE: If the user searches for a literal object, person, or specific noun "
+                        "(e.g., 'sunglass', 'train', 'Ramesh', 'apples'), DO NOT append broad academic "
+                        "disciplines like 'geometry', 'optics', or 'physics'. Preserve their literal intent "
+                        "and only expand actual mathematical abbreviations. Return ONLY the optimized query string."
+                    )
+                },
+                {"role": "user", "content": user_query}
+            ],
+            temperature=0.0, # Dropped to 0 for maximum determinism
+            max_tokens=50
+        )
+        expanded_text = response.choices[0].message.content.strip()
+        # If the LLM just returns the same word, don't duplicate it
+        if expanded_text.lower() == user_query.lower():
+            return user_query
+            
+        return f"{user_query} {expanded_text}"
+    except Exception as e:
+        print(f"⚠️ Query expansion failed: {e}")
+        return user_query
+
+
+# 2. SIMPLIFIED SEARCH ENDPOINT
 @app.post("/api/semantic-search")
 async def semantic_search(request: SemanticSearchRequest):
     if not collection:
         raise HTTPException(status_code=500, detail="ChromaDB collection not initialized.")
     
     try:
-        # 1. Perform semantic search
+        optimized_query = expand_search_query(request.query)
+        print(f"🔍 Optimized Query: {optimized_query}")
+
         results = collection.query(
-            query_texts=[request.query],
-            n_results=request.limit
+            query_texts=[optimized_query],
+            n_results=request.limit,
+            include=["metadatas", "distances"]
         )
 
         if not results["metadatas"] or not results["metadatas"][0]:
             return {"questions": []}
 
-        # 2. Extract Context IDs from the hits to find missing sibling questions
+        distances = results["distances"][0]
+        metadatas = results["metadatas"][0]
+        
+        valid_metadatas = []
         context_ids = set()
-        for meta in results["metadatas"][0]:
+
+        # A safe, static ceiling. 0.85 is generous enough to catch expanded queries.
+        MAX_DISTANCE_CEILING = 0.85 
+
+        for i in range(len(distances)):
+            dist = distances[i]
+            meta = metadatas[i]
+
+            # We ONLY use the hard ceiling now. No more dynamic gap drops.
+            if dist > MAX_DISTANCE_CEILING:
+                print(f"🚫 Cutoff Reached at {dist:.3f}")
+                break 
+
+            valid_metadatas.append(meta)
+            
             if meta.get("has_parent_context") == "True" and meta.get("context_id"):
                 context_ids.add(meta.get("context_id"))
 
-        # 3. Fetch all siblings for any sets that were hit
+        if not valid_metadatas:
+            return {"questions": []}
+
+        # Fetch siblings for Sets
         sibling_metadatas = []
         if context_ids:
-            # ChromaDB supports $in for fetching multiple specific matches
             siblings = collection.get(where={"context_id": {"$in": list(context_ids)}})
             if siblings and siblings.get("metadatas"):
                 sibling_metadatas = siblings["metadatas"]
 
-        # 4. Deduplicate the vectors (so we don't return the same question twice)
-        all_metadatas = {}
-        for meta in results["metadatas"][0]:
-            all_metadatas[meta["id"]] = meta
-        for meta in sibling_metadatas:
-            all_metadatas[meta["id"]] = meta
+        siblings_by_context = {}
+        for sibling in sibling_metadatas:
+            cid = sibling.get("context_id")
+            if cid not in siblings_by_context:
+                siblings_by_context[cid] = []
+            siblings_by_context[cid].append(sibling)
 
-        # 5. Un-flatten into your standard Schema
+        # RELEVANCE SORTING: Build the final list while strictly maintaining ChromaDB's order
+        final_ordered_metadatas = []
+        seen_ids = set()
+
+        for meta in valid_metadatas:
+            if meta["id"] in seen_ids:
+                continue
+                
+            # 1. Add the highly relevant match
+            final_ordered_metadatas.append(meta)
+            seen_ids.add(meta["id"])
+
+            # 2. Immediately append its siblings to keep the Set contiguous in the UI
+            cid = meta.get("context_id")
+            if meta.get("has_parent_context") == "True" and cid in siblings_by_context:
+                sorted_siblings = sorted(siblings_by_context[cid], key=lambda x: x["id"])
+                for sibling in sorted_siblings:
+                    if sibling["id"] not in seen_ids:
+                        final_ordered_metadatas.append(sibling)
+                        seen_ids.add(sibling["id"])
+
+        # Un-flatten back into frontend schema
         formatted_results = []
-        for meta in all_metadatas.values():
+        for meta in final_ordered_metadatas:
             question_obj = {
                 "id": meta.get("id"),
                 "subject": meta.get("subject"),
@@ -621,23 +707,32 @@ async def semantic_search(request: SemanticSearchRequest):
             }
 
             if "option_A" in meta:
-                question_obj["options"] = {"A": meta.get("option_A"), "B": meta.get("option_B"), "C": meta.get("option_C"), "D": meta.get("option_D")}
+                question_obj["options"] = {
+                    "A": meta.get("option_A"), "B": meta.get("option_B"), 
+                    "C": meta.get("option_C"), "D": meta.get("option_D")
+                }
             else:
                 question_obj["options"] = None
 
             if question_obj["has_parent_context"]:
-                question_obj["parent_context"] = {"context_id": meta.get("context_id"), "context_type": meta.get("context_type"), "context_body": meta.get("context_body")}
+                question_obj["parent_context"] = {
+                    "context_id": meta.get("context_id"), 
+                    "context_type": meta.get("context_type"), 
+                    "context_body": meta.get("context_body")
+                }
             else:
                 question_obj["parent_context"] = None
                 
             question_obj["metadata_hooks"] = {
                 "trap_type": meta.get("trap_type"), "difficulty": meta.get("difficulty"),
-                "difficulty_level": float(meta.get("difficulty_level", 5.0)), "calculation_intensity": meta.get("calculation_intensity")
+                "difficulty_level": float(meta.get("difficulty_level", 5.0)), 
+                "calculation_intensity": meta.get("calculation_intensity")
             }
 
             formatted_results.append(question_obj)
 
         return {"questions": formatted_results}
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 

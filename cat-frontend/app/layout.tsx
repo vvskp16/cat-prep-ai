@@ -24,10 +24,7 @@ export default function RootLayout({
             
             {/* BRANDING */}
             <Link href="/" className="flex items-center space-x-2 transition hover:opacity-80">
-              <div className="bg-blue-600 text-white p-1.5 rounded-md font-black text-xs tracking-widest uppercase">
-                CAT
-              </div>
-              <span className="font-bold text-lg tracking-tight">Prep AI</span>
+              <span className="font-bold text-lg tracking-tight">CAT Prep AI</span>
             </Link>
 
             {/* MAIN LINKS */}

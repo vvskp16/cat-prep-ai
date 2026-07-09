@@ -57,11 +57,19 @@ export default function StandaloneQuestionViewer() {
 
     return (
         <div className="min-h-screen bg-gray-50">
-        <ExamEngine 
-            examData={questionData} // <--- Change testData to examData
-            isReviewMode={true} 
-            onExit={() => router.push('/search')} 
-        />
+            <ExamEngine 
+              initialTestData={questionData} // (or setData in the set file)
+              isReviewMode={true} 
+              onExit={() => {
+                // If there is browser history to pop, go back (preserves Search state)
+                if (window.history.length > 2) {
+                  router.back();
+                } else {
+                  // Fallback just in case they opened the link in a new tab
+                  router.push('/search');
+                }
+              }} 
+            />
         </div>
   );
 }
