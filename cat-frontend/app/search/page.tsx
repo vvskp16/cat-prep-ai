@@ -124,8 +124,6 @@ export default function SearchPage() {
         
         {/* Header & Advanced Search Bar */}
         <div className="text-center space-y-4">
-          <h1 className="text-4xl font-extrabold tracking-tight">Knowledge Base</h1>
-          <p className="text-gray-500">Search conceptually. E.g., "train crossing bridge" or "P&C problems"</p>
           
           <div className="relative max-w-2xl mx-auto">
             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
@@ -155,12 +153,21 @@ export default function SearchPage() {
               ) : null}
             </div>
           </div>
+          <p className="text-gray-500">E.g., "train problems" or "P&C problems"</p>
 
+          {/* Recent Searches */}
           {!query && recentSearches.length > 0 && (
             <div className="flex items-center justify-center gap-2 mt-4 text-sm text-gray-500">
               <span>Recent:</span>
               {recentSearches.map((rec, idx) => (
-                <button key={idx} onClick={() => { setQuery(rec); }} className="px-3 py-1 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors">
+                <button 
+                  key={idx} 
+                  onClick={() => { 
+                    setQuery(rec); 
+                    performSearch(rec); // <--- Add this so clicking it instantly searches!
+                  }} 
+                  className="px-3 py-1 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"
+                >
                   {rec}
                 </button>
               ))}
