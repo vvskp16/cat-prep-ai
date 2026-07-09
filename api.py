@@ -561,6 +561,201 @@ async def search_questions(payload: SearchRequest):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Engine retrieval error: {str(e)}")
 
+from pydantic import BaseModel
+from typing import Optional
+
+class SemanticSearchRequest(BaseModel):
+    query: str
+    limit: int = 10
+@app.post("/api/semantic-search")
+async def semantic_search(request: SemanticSearchRequest):
+    if not collection:
+        raise HTTPException(status_code=500, detail="ChromaDB collection not initialized.")
+    
+    try:
+        # 1. Perform semantic search
+        results = collection.query(
+            query_texts=[request.query],
+            n_results=request.limit
+        )
+
+        if not results["metadatas"] or not results["metadatas"][0]:
+            return {"questions": []}
+
+        # 2. Extract Context IDs from the hits to find missing sibling questions
+        context_ids = set()
+        for meta in results["metadatas"][0]:
+            if meta.get("has_parent_context") == "True" and meta.get("context_id"):
+                context_ids.add(meta.get("context_id"))
+
+        # 3. Fetch all siblings for any sets that were hit
+        sibling_metadatas = []
+        if context_ids:
+            # ChromaDB supports $in for fetching multiple specific matches
+            siblings = collection.get(where={"context_id": {"$in": list(context_ids)}})
+            if siblings and siblings.get("metadatas"):
+                sibling_metadatas = siblings["metadatas"]
+
+        # 4. Deduplicate the vectors (so we don't return the same question twice)
+        all_metadatas = {}
+        for meta in results["metadatas"][0]:
+            all_metadatas[meta["id"]] = meta
+        for meta in sibling_metadatas:
+            all_metadatas[meta["id"]] = meta
+
+        # 5. Un-flatten into your standard Schema
+        formatted_results = []
+        for meta in all_metadatas.values():
+            question_obj = {
+                "id": meta.get("id"),
+                "subject": meta.get("subject"),
+                "question_type": meta.get("question_type"),
+                "topic": meta.get("topic"),
+                "sub_topic": meta.get("sub_topic"),
+                "has_parent_context": meta.get("has_parent_context") == "True",
+                "question_text": meta.get("question_text"),
+                "correct_answer": meta.get("correct_answer"),
+                "solution_text": meta.get("solution_text"),
+                "semantic_keywords": json.loads(meta.get("semantic_keywords", "[]")),
+                "original_sources": json.loads(meta.get("original_sources", "[]"))
+            }
+
+            if "option_A" in meta:
+                question_obj["options"] = {"A": meta.get("option_A"), "B": meta.get("option_B"), "C": meta.get("option_C"), "D": meta.get("option_D")}
+            else:
+                question_obj["options"] = None
+
+            if question_obj["has_parent_context"]:
+                question_obj["parent_context"] = {"context_id": meta.get("context_id"), "context_type": meta.get("context_type"), "context_body": meta.get("context_body")}
+            else:
+                question_obj["parent_context"] = None
+                
+            question_obj["metadata_hooks"] = {
+                "trap_type": meta.get("trap_type"), "difficulty": meta.get("difficulty"),
+                "difficulty_level": float(meta.get("difficulty_level", 5.0)), "calculation_intensity": meta.get("calculation_intensity")
+            }
+
+            formatted_results.append(question_obj)
+
+        return {"questions": formatted_results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+
+
+@app.get("/api/question/{question_id}")
+async def get_single_question(question_id: str):
+    """Fetches a single standalone question by its exact ID."""
+    if not collection:
+        raise HTTPException(status_code=500, detail="ChromaDB collection not initialized.")
+    
+    try:
+        results = collection.get(ids=[question_id])
+        if not results["metadatas"]:
+            return {"questions": []}
+            
+        meta = results["metadatas"][0]
+        question_obj = {
+            "id": meta.get("id"),
+            "subject": meta.get("subject"),
+            "question_type": meta.get("question_type"),
+            "topic": meta.get("topic"),
+            "sub_topic": meta.get("sub_topic"),
+            "has_parent_context": meta.get("has_parent_context") == "True",
+            "question_text": meta.get("question_text"),
+            "correct_answer": meta.get("correct_answer"),
+            "solution_text": meta.get("solution_text"),
+            "semantic_keywords": json.loads(meta.get("semantic_keywords", "[]")),
+            "original_sources": json.loads(meta.get("original_sources", "[]")),
+            "metadata_hooks": {
+                "trap_type": meta.get("trap_type"), "difficulty": meta.get("difficulty"),
+                "difficulty_level": float(meta.get("difficulty_level", 5.0)), "calculation_intensity": meta.get("calculation_intensity")
+            }
+        }
+        
+        if "option_A" in meta:
+            question_obj["options"] = {"A": meta.get("option_A"), "B": meta.get("option_B"), "C": meta.get("option_C"), "D": meta.get("option_D")}
+        else:
+            question_obj["options"] = None
+
+        if question_obj["has_parent_context"]:
+            question_obj["parent_context"] = {"context_id": meta.get("context_id"), "context_type": meta.get("context_type"), "context_body": meta.get("context_body")}
+        else:
+            question_obj["parent_context"] = None
+            
+        # Wrap in array so ExamEngine can map it normally
+        return {"questions": [question_obj]}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch question: {str(e)}")
+
+@app.get("/api/set/{context_id}")
+async def get_full_set(context_id: str):
+    if not collection:
+        raise HTTPException(status_code=500, detail="ChromaDB collection not initialized.")
+    
+    try:
+        # Deterministic metadata lookup (No vector search needed)
+        results = collection.get(
+            where={"context_id": context_id}
+        )
+
+        formatted_results = []
+        if not results["metadatas"]:
+            return {"questions": []}
+
+        # Un-flatten the ChromaDB metadata back into our nested frontend schema
+        for meta in results["metadatas"]:
+            question_obj = {
+                "id": meta.get("id"),
+                "subject": meta.get("subject"),
+                "question_type": meta.get("question_type"),
+                "topic": meta.get("topic"),
+                "sub_topic": meta.get("sub_topic"),
+                "has_parent_context": meta.get("has_parent_context") == "True",
+                "question_text": meta.get("question_text"),
+                "correct_answer": meta.get("correct_answer"),
+                "solution_text": meta.get("solution_text"),
+                "semantic_keywords": json.loads(meta.get("semantic_keywords", "[]")),
+                "original_sources": json.loads(meta.get("original_sources", "[]"))
+            }
+
+            # Reconstruct Options 
+            if "option_A" in meta:
+                question_obj["options"] = {
+                    "A": meta.get("option_A"),
+                    "B": meta.get("option_B"),
+                    "C": meta.get("option_C"),
+                    "D": meta.get("option_D")
+                }
+            else:
+                question_obj["options"] = None
+
+            # Reconstruct Parent Context
+            if question_obj["has_parent_context"]:
+                question_obj["parent_context"] = {
+                    "context_id": meta.get("context_id"),
+                    "context_type": meta.get("context_type"),
+                    "context_body": meta.get("context_body")
+                }
+                
+            # Reconstruct Metadata Hooks
+            question_obj["metadata_hooks"] = {
+                "trap_type": meta.get("trap_type"),
+                "difficulty": meta.get("difficulty"),
+                "difficulty_level": float(meta.get("difficulty_level", 5.0)),
+                "calculation_intensity": meta.get("calculation_intensity")
+            }
+
+            formatted_results.append(question_obj)
+
+        # Sort by ID to ensure questions appear in their original sequential order
+        formatted_results.sort(key=lambda x: x["id"])
+
+        return {"questions": formatted_results}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch set: {str(e)}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

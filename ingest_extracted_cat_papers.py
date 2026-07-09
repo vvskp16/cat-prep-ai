@@ -1,15 +1,19 @@
 import os
 import glob
 import json
-import re
 import shutil
 import chromadb
 from chromadb.utils import embedding_functions
+import openai
 
 # --- Configuration ---
 # Point this to wherever your finalized/enriched JSON files live
 JSON_DIRECTORY = "./chroma_ready_docs/*.json" 
 DB_PATH = "./chroma_db"
+
+# Pricing configuration for embeddings
+EMBEDDING_MODEL = "text-embedding-3-small"
+COST_PER_1M_TOKENS = 0.020  # $0.020 per 1 million tokens
 
 def flatten_for_chroma(q: dict, batch_type: str) -> dict:
     """
@@ -68,15 +72,20 @@ def main():
     # 2. Initialize fresh ChromaDB client
     client = chromadb.PersistentClient(path=DB_PATH)
     
-    # 3. Setup OpenAI Embedding Function
+    # 3. Setup OpenAI API and Embedding Function
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         print("❌ ERROR: OPENAI_API_KEY environment variable not found.")
         return
 
+    # Standard OpenAI client for explicit embedding calls (so we can get token counts)
+    openai_client = openai.OpenAI(api_key=api_key)
+
+    # We still attach the ChromaDB OpenAIEmbeddingFunction to the collection 
+    # so that it knows how to embed natural language *queries* in the future natively.
     openai_ef = embedding_functions.OpenAIEmbeddingFunction(
         api_key=api_key,
-        model_name="text-embedding-3-small"
+        model_name=EMBEDDING_MODEL
     )
 
     # Create fresh collection
@@ -91,17 +100,24 @@ def main():
         return
 
     total_questions = 0
+    total_pipeline_tokens = 0
+    total_pipeline_cost = 0.0
+
+    print("🚀 Starting Semantic Embedding & Ingestion Pipeline...")
 
     # 4. Ingestion Loop
     for file_path in json_files:
-        print(f"📦 Processing file: {file_path}")
+        print(f"\n📦 Processing file: {os.path.basename(file_path)}")
+        file_tokens = 0
+        file_cost = 0.0
+
         with open(file_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             
             # Handle if the root is an array of batches or a single batch dictionary
             batches = data if isinstance(data, list) else [data]
 
-            for batch in batches:
+            for idx, batch in enumerate(batches):
                 batch_type = batch.get("batch_type", "STANDALONE")
                 questions = batch.get("questions", [])
                 
@@ -114,17 +130,12 @@ def main():
                     if not q_id:
                         continue # Skip invalid questions without IDs
                         
-                    # Use the pre-calculated `combined_embed_text` produced
-                    # by the enrichment step. The enricher is responsible for
-                    # injecting image descriptions inline and formatting.
                     combined_embed_text = q.get("combined_embed_text", "")
 
                     if not combined_embed_text:
                         print(f"⚠️ Warning: Missing combined_embed_text for {q_id}")
                         continue
 
-                    # Flatten all fields for storage (we still keep full image_descriptions
-                    # serialized in metadata so the frontend/editor can inspect them).
                     flat_meta = flatten_for_chroma(q, batch_type)
 
                     ids.append(q_id)
@@ -133,14 +144,45 @@ def main():
 
                 # Batch Upsert into ChromaDB
                 if ids:
-                    collection.add(
-                        ids=ids,
-                        documents=documents,
-                        metadatas=metadatas
-                    )
-                    total_questions += len(ids)
+                    try:
+                        # explicitly request embeddings to get token usage metadata
+                        response = openai_client.embeddings.create(
+                            input=documents,
+                            model=EMBEDDING_MODEL
+                        )
+                        
+                        # Extract the vectors and cost data
+                        embeddings = [data.embedding for data in response.data]
+                        tokens_used = response.usage.total_tokens
+                        batch_cost = (tokens_used / 1_000_000) * COST_PER_1M_TOKENS
+                        
+                        # Tally counts
+                        file_tokens += tokens_used
+                        file_cost += batch_cost
+                        total_pipeline_tokens += tokens_used
+                        total_pipeline_cost += batch_cost
+                        total_questions += len(ids)
 
+                        # Provide the explicit embeddings to ChromaDB
+                        collection.add(
+                            ids=ids,
+                            embeddings=embeddings, # <--- By passing this, Chroma skips its own API call
+                            documents=documents,
+                            metadatas=metadatas
+                        )
+                        
+                        print(f"    ↳ Batch {idx + 1}/{len(batches)} Ingested: {len(ids)} questions | Tokens: {tokens_used} | Cost: ${batch_cost:.6f}")
+                    
+                    except Exception as e:
+                        print(f"    ❌ Error generating embeddings for Batch {idx + 1}: {e}")
+
+        print(f"  🏁 File Summary | Tokens: {file_tokens} | Cost: ${file_cost:.6f}")
+
+    print("\n" + "="*50)
     print(f"✅ Success! Ingested {total_questions} fully-enriched questions into fresh ChromaDB.")
+    print(f"📊 Total Pipeline Tokens: {total_pipeline_tokens}")
+    print(f"💰 Total Pipeline Cost:   ${total_pipeline_cost:.6f}")
+    print("="*50 + "\n")
 
 if __name__ == "__main__":
     main()
