@@ -43,7 +43,7 @@ def process_all_files():
                 solution_text = q.get("solution_text", "")
                 
                 # Combine all text for this question block
-                combined_text = f"{context_body}\n{question_text}\n{solution_text}"
+                combined_text = f"{context_body}\n{question_text}"
                 
                 # Pluck out the markdown image paths
                 found_paths = re.findall(r'!\[.*?\]\((/images/.*?\.png)\)', combined_text)
@@ -85,12 +85,22 @@ def process_all_files():
                         batch["questions"][idx]["sub_topic"] = q_meta.sub_topic
                         batch["questions"][idx]["metadata_hooks"] = q_meta.metadata_hooks.model_dump()
                         batch["questions"][idx]["semantic_keywords"] = q_meta.semantic_keywords
-                        
+                        batch["questions"][idx]["image_descriptions"] = q_meta.image_descriptions
+
                         batch["questions"][idx]["has_parent_context"] = True if batch.get("parent_context") else False
                         batch["questions"][idx]["parent_context"] = batch.get("parent_context")
 
-                        # Generate the Vector DB combined text with injected Concept & Trap SEO 
-                        batch["questions"][idx]["combined_embed_text"] = f"{context_body}\n{batch['questions'][idx].get('question_text', '')}\nConcepts & Keywords: {', '.join(q_meta.semantic_keywords)}\nCore Trap: {q_meta.metadata_hooks.trap_type}"
+                        image_desc_text = " ".join(q_meta.image_descriptions or [])
+                        batch["questions"][idx]["combined_embed_text"] = (
+                            f"Subject: {q_meta.subject}\n"
+                            f"Topic: {q_meta.topic}\n"
+                            f"Sub Topic: {q_meta.sub_topic}\n"
+                            f"Context: {context_body}\n"
+                            f"Question: {batch['questions'][idx].get('question_text', '')}\n"
+                            f"Concepts & Keywords: {', '.join(q_meta.semantic_keywords)}\n"
+                            f"Image Context: {image_desc_text}\n"
+                            f"Core Trap: {q_meta.metadata_hooks.trap_type}"
+                        ).strip()
                     
                     output_data.append(batch)
                     print("     ✅ Successfully enriched.")

@@ -39,10 +39,10 @@ def process_single_batch(file_name: str, target_batch_idx: int):
 
     for q in batch.get("questions", []):
         question_text = q.get("question_text", "")
-        solution_text = q.get("solution_text", "")
         
-        # Combine all text for this question block
-        combined_text = f"{context_body}\n{question_text}\n{solution_text}"
+        # Combine only question/passage text for image extraction.
+        # Solution text image descriptions should not be embedded in the vector context.
+        combined_text = f"{context_body}\n{question_text}"
         
         # Pluck out the markdown image paths
         found_paths = re.findall(r'!\[.*?\]\((/images/.*?\.png)\)', combined_text)
@@ -67,42 +67,37 @@ def process_single_batch(file_name: str, target_batch_idx: int):
     # 4. Call the LLM with the newly extracted images
     try:
         metadata_payload, _ = enrich_scraped_json_batch("gpt-5.4-mini", batch, base64_images)
-        
+
         if len(metadata_payload.questions) != len(batch.get("questions", [])):
             raise ValueError(f"Array length mismatch. Expected {len(batch.get('questions', []))} but got {len(metadata_payload.questions)}.")
-        
+
         for idx, q_meta in enumerate(metadata_payload.questions):
             batch["questions"][idx]["id"] = f"Q_{q_meta.subject.upper()}_{uuid.uuid4().hex[:8].upper()}"
             batch["questions"][idx]["subject"] = q_meta.subject
             batch["questions"][idx]["topic"] = q_meta.topic
             batch["questions"][idx]["sub_topic"] = q_meta.sub_topic
             batch["questions"][idx]["metadata_hooks"] = q_meta.metadata_hooks.model_dump()
-            
+
             # NEW: Map the image descriptions
-            batch["questions"][idx]["image_descriptions"] = q_meta.image_descriptions
-            
-            # Update the Vector DB combined text to include Image Context
-            image_desc_text = " ".join(q_meta.image_descriptions)
+            batch["questions"][idx]["image_descriptions"] = q_meta.image_descriptions or []
+
+            image_desc_text = " ".join(q_meta.image_descriptions or [])
             batch["questions"][idx]["combined_embed_text"] = (
-                f"{context_body}\n{batch['questions'][idx].get('question_text', '')}\n"
+                f"Subject: {q_meta.subject}\n"
+                f"Topic: {q_meta.topic}\n"
+                f"Sub Topic: {q_meta.sub_topic}\n"
+                f"Context: {context_body}\n"
+                f"Question: {batch['questions'][idx].get('question_text', '')}\n"
                 f"Concepts & Keywords: {', '.join(q_meta.semantic_keywords)}\n"
                 f"Image Context: {image_desc_text}\n"
                 f"Core Trap: {q_meta.metadata_hooks.trap_type}"
-            )
-        
-        output_file_path = OUTPUT_DIR / f"debug_enriched_{file_name}_batch_{target_batch_idx}.json"
-        with open(output_file_path, "w", encoding="utf-8") as f:
-            json.dump([batch], f, indent=4)
-            
-        print(f"✅ Successfully enriched! Saved output to {output_file_path}")
-        
+            ).strip()
     except Exception as e:
         print(f"❌ Enrichment failed: {e}")
+        return
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Enrich a single specific batch from a JSON file.")
-    parser.add_argument("--file", required=True, help="The filename of the JSON file (e.g., cat-2022-slot-1.json)")
-    parser.add_argument("--batch", required=True, type=int, help="The index of the batch to process (e.g., 14)")
-    
-    args = parser.parse_args()
-    process_single_batch(args.file, args.batch)
+    output_file_path = OUTPUT_DIR / f"debug_enriched_{file_name}_batch_{target_batch_idx}.json"
+    with open(output_file_path, "w", encoding="utf-8") as f:
+        json.dump([batch], f, indent=4)
+
+    print(f"✅ Successfully enriched! Saved output to {output_file_path}")

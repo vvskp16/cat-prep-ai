@@ -135,6 +135,9 @@ def main():
                     image_desc_list = q.get("image_descriptions", [])
                     image_desc_str = " ".join(image_desc_list) if isinstance(image_desc_list, list) else ""
                     combined_embed_text = (
+                        f"Subject: {q.get('subject', '')}\n"
+                        f"Topic: {q.get('topic', '')}\n"
+                        f"Sub Topic: {q.get('sub_topic', '')}\n"
                         f"Context: {context_text}\n\n"
                         f"Question: {q.get('question_text', '')}\n\n"
                         f"Concepts & Keywords: {keywords_str}\n"
