@@ -2,6 +2,8 @@ import os
 import glob
 import json
 import shutil
+import sys
+import time
 import chromadb
 from chromadb.utils import embedding_functions
 import openai
@@ -64,10 +66,29 @@ def flatten_for_chroma(q: dict, batch_type: str) -> dict:
     return {k: v for k, v in flat_meta.items() if v is not None}
 
 def main():
-    # 1. Nuclear Option: Wipe the existing corrupted/outdated ChromaDB
     if os.path.exists(DB_PATH):
-        print(f"🧹 Deleting existing ChromaDB directory at {DB_PATH}...")
-        shutil.rmtree(DB_PATH)
+        choice = input(f"\n⚠️ Existing ChromaDB found at {DB_PATH}.\n"
+                    "Wipe database? [y/N]: ").strip().lower()
+
+        if choice == 'y':
+            print(f"🚨 DANGER: Wiping database in 5 seconds...")
+            print("   Press Ctrl+C immediately to ABORT the process.")
+            
+            try:
+                # 5-second visual countdown
+                for i in range(5, 0, -1):
+                    print(f"   Deleting in {i}...", end="\r")
+                    time.sleep(1)
+                
+                print("\n🧹 Deleting existing ChromaDB directory...")
+                shutil.rmtree(DB_PATH)
+                print("✅ Database successfully wiped.")
+                
+            except KeyboardInterrupt:
+                print("\n\n🛑 ABORTED: Deletion cancelled. Skipping ingestion.")
+                sys.exit(0) # Stops the script so you don't accidentally run ingestion on a half-wiped state
+        else:
+            print("⏭️ Skipping deletion. Proceeding to append to existing database.\n")
     
     # 2. Initialize fresh ChromaDB client
     client = chromadb.PersistentClient(path=DB_PATH)
