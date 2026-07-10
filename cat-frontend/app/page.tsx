@@ -16,7 +16,7 @@ const getDifficultyDisplay = (min: number, max: number) => {
   const maxCat = getDifficultyCategory(max);
 
   if (minCat.label === maxCat.label) return <span className={`px-2.5 py-1 text-xs font-bold rounded-md border ${minCat.color}`}>Targeted {minCat.label}</span>;
-  if (minCat.label === "Easy" && maxCat.label === "Hard") return <span className="px-2.5 py-1 text-xs font-bold rounded-md border text-blue-600 bg-blue-50 border-blue-200">Full Spectrum</span>;
+  if (minCat.label === "Easy" && maxCat.label === "Hard") return <span className="px-2.5 py-1 text-xs font-bold rounded-md border text-gray-600 bg-gray-50 border-gray-200">Full Spectrum</span>;
   return <span className={`px-2.5 py-1 text-xs font-bold rounded-md border ${maxCat.color} bg-gradient-to-r from-transparent to-white/50`}>{minCat.label} to {maxCat.label}</span>;
 };
 
@@ -157,7 +157,7 @@ export default function EnhancedTestGenerator() {
     router.push(`/test-exam?${queryParams.toString()}`);
   };
 
-  const thumbStyles = "[&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-blue-600 [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:cursor-grab active:[&::-webkit-slider-thumb]:cursor-grabbing [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-blue-600 [&::-moz-range-thumb]:shadow-md [&::-moz-range-thumb]:cursor-grab active:[&::-moz-range-thumb]:cursor-grabbing";
+  const thumbStyles = "[&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-gray-300 [&::-webkit-slider-thumb]:shadow-sm [&::-webkit-slider-thumb]:cursor-grab active:[&::-webkit-slider-thumb]:cursor-grabbing [&::-webkit-slider-thumb]:hover:border-gray-400 [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-gray-300 [&::-moz-range-thumb]:shadow-sm [&::-moz-range-thumb]:cursor-grab active:[&::-moz-range-thumb]:cursor-grabbing [&::-moz-range-thumb]:hover:border-gray-400";
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col items-center py-10 px-6">
@@ -166,7 +166,7 @@ export default function EnhancedTestGenerator() {
       {presets.length > 0 && (
         <div className="w-full max-w-4xl mb-4 flex items-center gap-3 overflow-x-auto pb-2 scrollbar-hide">
           <span className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center gap-1 shrink-0">
-            <History className="w-3.5 h-3.5" /> Blueprints:
+            <History className="w-3.5 h-3.5" /> presets:
           </span>
           {presets.map((preset, idx) => (
             <button
@@ -178,7 +178,7 @@ export default function EnhancedTestGenerator() {
                   : "bg-white text-gray-700 border-gray-300 hover:bg-gray-100"
               }`}
             >
-              {preset.name === "Last Run" ? <History className="w-3 h-3" /> : <Bookmark className="w-3 h-3 text-blue-500" />}
+              {preset.name === "Last Run" ? <History className="w-3 h-3" /> : <Bookmark className="w-3 h-3 text-gray-500" />}
               {preset.name}
             </button>
           ))}
@@ -187,22 +187,12 @@ export default function EnhancedTestGenerator() {
 
       <div className="w-full max-w-4xl bg-white border border-gray-200 rounded-2xl shadow-xl overflow-hidden">
         
-        {/* Header Banner */}
-        <div className="bg-gradient-to-r from-blue-700 to-indigo-800 p-6 text-white flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight flex items-center gap-2">
-              <Sliders className="w-5 h-5 text-blue-300" />
-              Configure Test Parameters
-            </h2>
-          </div>
-        </div>
-
         <form onSubmit={handleSubmit} className="p-8 space-y-8">
           
           {/* Step 1: Subject Selection */}
           <div className="space-y-3">
             <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-              <BookOpen className="w-4 h-4 text-blue-600" /> 1. Select Target Section
+              <BookOpen className="w-4 h-4 text-gray-600" /> 1. Select Target Section
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {["Quant", "DILR", "VARC"].map((sub) => {
@@ -210,11 +200,11 @@ export default function EnhancedTestGenerator() {
                 return (
                   <button key={sub} type="button" onClick={() => setSubject(sub)}
                     className={`p-5 rounded-xl border text-left transition-all duration-200 relative overflow-hidden ${
-                      isActive ? "border-blue-600 bg-blue-50/70 ring-2 ring-blue-600/20 shadow-sm" : "border-gray-200 hover:bg-gray-50"
+                      isActive ? "border-indigo-600 bg-indigo-50/80 ring-2 ring-indigo-600/20 shadow-sm" : "border-slate-200 hover:bg-slate-50"
                     }`}
                   >
-                    <span className={`text-base font-bold block ${isActive ? "text-blue-700" : "text-gray-900"}`}>{sub}</span>
-                    {isActive && <div className="absolute top-0 right-0 w-3 h-3 bg-blue-600 rounded-bl-lg" />}
+                    <span className={`text-base font-bold block ${isActive ? "text-indigo-700" : "text-slate-900"}`}>{sub}</span>
+                    {isActive && <div className="absolute top-0 right-0 w-3 h-3 bg-indigo-600 rounded-bl-lg" />}
                   </button>
                 );
               })}
@@ -222,12 +212,12 @@ export default function EnhancedTestGenerator() {
           </div>
 
           {/* Step 2: Cascading Topics & Subtopics */}
-          <div className="space-y-3 bg-gray-50/80 p-5 rounded-xl border border-gray-100 min-h-[120px]">
+          <div className="space-y-3 bg-slate-50 p-5 rounded-xl border border-slate-200 min-h-[120px]">
             <div className="flex justify-between items-center mb-2">
-              <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+              <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
                 <Layers className="w-4 h-4 text-indigo-600" /> 2. Focus Areas
               </label>
-              {isFetchingFilters && <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />}
+              {isFetchingFilters && <Loader2 className="w-4 h-4 text-indigo-500 animate-spin" />}
             </div>
             
             {/* Parent Topics */}
@@ -237,7 +227,7 @@ export default function EnhancedTestGenerator() {
                 return (
                   <button key={topic} type="button" onClick={() => toggleArrayItem(topic, setSelectedTopics)}
                     className={`px-4 py-2 rounded-lg text-xs font-bold border transition-colors ${
-                      isChecked ? "bg-indigo-600 text-white border-indigo-600 shadow-sm" : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
+                      isChecked ? "bg-indigo-600 text-white border-indigo-600 shadow-sm" : "bg-white text-slate-700 border-slate-200 hover:bg-slate-100"
                     }`}
                   >
                     {topic}
@@ -282,14 +272,14 @@ export default function EnhancedTestGenerator() {
               {/* Target Count Slider */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-                    <Target className="w-4 h-4 text-blue-600" /> 3. Target Count
+                  <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Target className="w-4 h-4 text-indigo-600" /> 3. Target Count
                   </label>
-                  <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-md">{limit} Questions</span>
+                  <span className="px-2.5 py-1 text-xs font-bold rounded-md border text-gray-600 bg-gray-50 border-gray-200">{limit} Questions</span>
                 </div>
                 <div className="relative pt-2">
                   <input type="range" min="2" max="70" step="1" value={limit} onChange={(e) => setLimit(parseInt(e.target.value))}
-                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 hover:accent-blue-700 transition-all"
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-600 hover:accent-gray-700 transition-all"
                   />
                 </div>
               </div>
@@ -297,14 +287,14 @@ export default function EnhancedTestGenerator() {
               {/* Time Slider */}
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
-                  <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-                    <span className="w-4 h-4 text-blue-600">⏱️</span> Test Duration
+                  <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <span className="w-4 h-4 text-indigo-600">⏱️</span> Test Duration
                   </label>
-                  <span className="bg-blue-100 text-blue-800 text-xs font-bold px-2.5 py-1 rounded-md">{timeLimit} Mins</span>
+                  <span className="px-2.5 py-1 text-xs font-bold rounded-md border text-gray-600 bg-gray-50 border-gray-200">{timeLimit} Mins</span>
                 </div>
                 <div className="relative pt-2">
                   <input type="range" min="5" max="120" step="5" value={timeLimit} onChange={(e) => setTimeLimit(parseInt(e.target.value))}
-                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600 hover:accent-blue-700 transition-all"
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-gray-600 hover:accent-gray-700 transition-all"
                   />
                 </div>
               </div>
@@ -313,14 +303,14 @@ export default function EnhancedTestGenerator() {
             {/* Interactive Dual-Thumb Difficulty Slider */}
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <label className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-                  <Brain className="w-4 h-4 text-purple-600" /> 4. Difficulty Range
+                <label className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Brain className="w-4 h-4 text-indigo-600" /> 4. Difficulty Range
                 </label>
                 {getDifficultyDisplay(minDifficulty, maxDifficulty)}
               </div>
               <div className="relative pt-3 pb-6">
                 <div className="absolute w-full h-2 bg-gray-200 rounded-lg top-3"></div>
-                <div className="absolute h-2 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-lg top-3"
+                <div className="absolute h-2 bg-gray-400 rounded-lg top-3"
                   style={{ left: `${((minDifficulty - 1) / 9) * 100}%`, right: `${100 - (((maxDifficulty - 1) / 9) * 100)}%` }}></div>
                 <input type="range" min="1.0" max="10.0" step="0.1" value={minDifficulty}
                   onChange={(e) => setMinDifficulty(Math.min(parseFloat(e.target.value), maxDifficulty - 0.2))}
@@ -336,9 +326,9 @@ export default function EnhancedTestGenerator() {
           </div>
 
           {/* Advanced Filters Accordion */}
-          <div className="border border-gray-200 rounded-xl overflow-hidden mt-6">
+          <div className="border border-slate-200 rounded-xl overflow-hidden mt-6">
             <button type="button" onClick={() => setShowAdvanced(!showAdvanced)}
-              className="w-full bg-gray-50 px-5 py-3 text-left flex justify-between items-center text-sm font-medium text-gray-700 hover:bg-gray-100/70 border-b border-gray-200 transition-colors"
+              className="w-full bg-slate-50 px-5 py-3 text-left flex justify-between items-center text-sm font-medium text-slate-700 hover:bg-slate-100/80 border-b border-slate-200 transition-colors"
             >
               <span className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-gray-500" />
@@ -373,16 +363,16 @@ export default function EnhancedTestGenerator() {
             <button
               type="button"
               onClick={() => {
-                const name = prompt("Name this test blueprint (e.g., 'Hard Arithmetic Drill')");
+                const name = prompt("Name this test preset (e.g., 'Hard Arithmetic Drill')");
                 if (name) savePreset(name);
               }}
-              className="text-sm font-semibold text-gray-500 hover:text-blue-600 flex items-center gap-1.5 transition-colors"
+              className="text-sm font-semibold text-slate-500 hover:text-indigo-600 flex items-center gap-1.5 transition-colors"
             >
               <Save className="w-4 h-4" /> Save as Preset
             </button>
             <button
               type="submit"
-              className="px-8 py-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold text-sm hover:from-blue-700 hover:to-indigo-700 shadow-md hover:shadow-lg transition-all flex items-center gap-2"
+              className="px-8 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-semibold text-sm hover:from-indigo-700 hover:to-violet-700 shadow-md hover:shadow-lg transition-all flex items-center gap-2"
             >
               Create Test →
             </button>
