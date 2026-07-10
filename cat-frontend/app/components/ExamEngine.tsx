@@ -65,19 +65,30 @@ export default function ExamEngine({
   const [showExitModal, setShowExitModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [markedForReview, setMarkedForReview] = useState<Set<number>>(new Set());
-  
   const [revealedSolutions, setRevealedSolutions] = useState<Set<string>>(new Set());
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const [leftWidth, setLeftWidth] = useState(70); 
+  const [leftWidth, setLeftWidth] = useState(80); 
   const [isDragging, setIsDragging] = useState(false);
+
+  // ==========================================
+  // FIX 1: LOCK GLOBAL SCROLLBAR (RED ARROW)
+  // ==========================================
+  useEffect(() => {
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+    };
+  }, []);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isDragging || !containerRef.current) return;
       const containerRect = containerRef.current.getBoundingClientRect();
       const newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
-      if (newLeftWidth > 30 && newLeftWidth < 75) {
+      if (newLeftWidth > 20 && newLeftWidth < 80) {
         setLeftWidth(newLeftWidth);
       }
     };
@@ -245,7 +256,7 @@ export default function ExamEngine({
             className="bg-white flex flex-col h-full relative" 
             style={{ flexBasis: `${leftWidth}%`, flexGrow: 1, flexShrink: 1, minWidth: '30%' }}
           >
-            {/* FIXED TOOLBAR (Permanently anchored at top, never overlaps with padding) */}
+            {/* FIXED TOOLBAR */}
             <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-100 shadow-sm z-10 shrink-0">
                 <span className="text-sm font-bold text-gray-500 uppercase tracking-widest">
                   Question {currentIndex + 1} <span className="lowercase text-gray-400 text-xs font-medium">of {testData.length}</span>
@@ -280,9 +291,21 @@ export default function ExamEngine({
                     </button>
                   </div>
                   
-                  <button onClick={handleCopyJson} title="Copy Question JSON" className="p-2 hover:bg-gray-100 rounded-md transition-colors ml-2">
-                      {copied ? <CheckCircle size={18} className="text-green-600" /> : <Copy size={18} className="text-gray-500" />}
-                  </button>
+                  {/* UTILITY ICONS (Copy + AI Tutor Toggle - ONLY IN REVIEW MODE) */}
+                  {isSubmitted && (
+                    <div className="flex items-center gap-1 border-l border-gray-200 pl-3 ml-1">
+                      <button onClick={handleCopyJson} title="Copy Question JSON" className="p-2 hover:bg-gray-100 rounded-md transition-colors">
+                          {copied ? <CheckCircle size={18} className="text-green-600" /> : <Copy size={18} className="text-gray-500" />}
+                      </button>
+                      <button 
+                        onClick={() => setShowAITutor(!showAITutor)} 
+                        title={showAITutor ? "Close AI Tutor" : "Ask AI Tutor"} 
+                        className={`p-2 rounded-md transition-colors ${showAITutor ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-gray-100 text-gray-500'}`}
+                      >
+                          <Sparkles size={18} className={showAITutor ? 'fill-indigo-100' : ''} />
+                      </button>
+                    </div>
+                  )}
                 </div>
             </div>
 
@@ -439,7 +462,7 @@ export default function ExamEngine({
           {/* RIGHT SIDEBAR */}
           <div 
             className="bg-gray-50 flex flex-col shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] z-10" 
-            style={{ flexBasis: `${100 - leftWidth}%`, flexGrow: 1, flexShrink: 1, minWidth: '25%' }}
+            style={{ flexBasis: `${100 - leftWidth}%`, flexGrow: 1, flexShrink: 1, minWidth: '20%' }}
           >
              {showAITutor ? (
                 /* FULL SCREEN AI TUTOR STATE */
@@ -457,11 +480,10 @@ export default function ExamEngine({
                   />
                 </div>
              ) : (
-                /* PALETTE & DIAGNOSTICS STATE (Fractional Overflow Fix) */
+                /* PALETTE & DIAGNOSTICS STATE */
                 <div className="p-5 flex-1 overflow-y-auto flex flex-col justify-between">
                   <div>
                       <h3 className="font-bold text-gray-700 mb-4 uppercase text-xs tracking-wider">Question Palette</h3>
-                      {/* FIX 2: Uniform Flexbox Gap Replaces Stretching CSS Grid */}
                       <div className="flex flex-wrap gap-3 mb-8">
                           {testData.map((_, index) => (
                             <button key={index} onClick={() => setCurrentIndex(index)}
@@ -513,16 +535,6 @@ export default function ExamEngine({
                               </div>
                             </div>
                           </div>
-                      </div>
-
-                      <div className="mt-2 border-t border-gray-200 pt-5">
-                          <button
-                            onClick={() => setShowAITutor(true)}
-                            className="w-full py-3.5 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white font-bold rounded-lg border border-indigo-200 transition-colors shadow-sm"
-                          >
-                            <Sparkles size={18} />
-                            Confused? Ask the AI Tutor
-                          </button>
                       </div>
                     </div>
                   )}

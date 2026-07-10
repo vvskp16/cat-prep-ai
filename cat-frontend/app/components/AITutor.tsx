@@ -15,7 +15,6 @@ interface AITutorProps {
   onClose: () => void;
 }
 
-// Pre-processor to clean up LLM output for strict KaTeX/Markdown parsing
 const formatAIResponse = (text: string) => {
   if (!text) return "";
   let formatted = text;
@@ -68,7 +67,7 @@ export default function AITutor({ questionContext, chatHistory, onUpdateHistory,
   };
 
   return (
-    <div className="flex flex-col h-full bg-white w-full font-sans text-gray-800">
+    <div className="flex flex-col h-full w-full bg-white font-sans text-gray-800 overflow-hidden">
       
       {/* Unified, Minimalist Header */}
       <div className="px-5 py-3 bg-white border-b border-gray-100 flex justify-between items-center shrink-0 z-10">
@@ -95,12 +94,11 @@ export default function AITutor({ questionContext, chatHistory, onUpdateHistory,
         </div>
       </div>
 
-      {/* Chat Messages List with Immersive Top/Bottom Fade Mask */}
       <div 
-        className="flex-1 overflow-y-auto px-5 pt-6 pb-2"
+        className="flex-1 overflow-y-auto min-h-0 px-5 pt-0 pb-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-300 hover:[&::-webkit-scrollbar-thumb]:bg-gray-400 [&::-webkit-scrollbar-thumb]:rounded-full transition-colors"
         style={{ 
-          WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 1.5rem, black calc(100% - 1rem), transparent)',
-          maskImage: 'linear-gradient(to bottom, transparent, black 1.5rem, black calc(100% - 1rem), transparent)'
+          WebkitMaskImage: 'linear-gradient(to bottom, black 0%, black calc(100% - 1rem), transparent)',
+          maskImage: 'linear-gradient(to bottom, black 0%, black calc(100% - 1rem), transparent)'
         }}
       >
         {chatHistory.length === 0 ? (
@@ -109,23 +107,22 @@ export default function AITutor({ questionContext, chatHistory, onUpdateHistory,
             <p className="text-sm">How can I help you with this question?</p>
           </div>
         ) : (
-          <div className="pb-6">
+          <div className="flex flex-col gap-4 pb-2">
             {chatHistory.map((msg, idx) => (
-              <div key={idx}>
+              <div key={idx} className={idx === 0 ? "pt-4" : ""}> 
                 {msg.role === 'user' ? (
-                  /* GitHub Copilot Style User Box */
-                  <div className="flex justify-end w-full mb-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="flex justify-end w-full animate-in fade-in slide-in-from-bottom-2 duration-300">
                     <div className="bg-gray-100 text-gray-800 px-4 py-3 rounded-2xl max-w-[85%] text-sm whitespace-pre-wrap leading-relaxed shadow-sm">
                       {msg.content}
                     </div>
                   </div>
                 ) : (
-                  /* GitHub Copilot Style AI Text Block */
-                  <div className="flex gap-4 w-full mb-8 animate-in fade-in duration-300">
+                  <div className="flex gap-4 w-full animate-in fade-in duration-300">
                     <div className="shrink-0 mt-0.5">
                       <Sparkles size={18} className="text-gray-400" />
                     </div>
-                    <div className="flex-1 min-w-0 prose prose-sm prose-gray max-w-none text-gray-800 leading-relaxed">
+                    {/* Explicitly added text-sm to match user chat bubble sizing perfectly */}
+                    <div className="flex-1 min-w-0 prose prose-sm max-w-none text-sm text-gray-800 leading-relaxed">
                       <MathRenderer content={formatAIResponse(msg.content)} />
                     </div>
                   </div>
@@ -134,7 +131,7 @@ export default function AITutor({ questionContext, chatHistory, onUpdateHistory,
             ))}
             
             {isLoading && (
-              <div className="flex gap-4 w-full mb-8 animate-pulse">
+              <div className="flex gap-4 w-full animate-pulse">
                 <div className="shrink-0 mt-0.5">
                   <Sparkles size={18} className="text-indigo-400" />
                 </div>
@@ -143,13 +140,13 @@ export default function AITutor({ questionContext, chatHistory, onUpdateHistory,
                 </div>
               </div>
             )}
-            <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} className="h-1 shrink-0" />
           </div>
         )}
       </div>
 
-      {/* Input Area */}
-      <div className="px-5 py-4 bg-white shrink-0">
+      {/* Input Area (Text removed, padding adjusted to py-4 for balance) */}
+      <div className="px-5 py-4 bg-white shrink-0 z-10">
         <div className="relative flex items-center shadow-[0_0_15px_rgba(0,0,0,0.03)] rounded-xl border border-gray-200 bg-gray-50/50 focus-within:bg-white focus-within:border-gray-300 focus-within:shadow-[0_0_20px_rgba(0,0,0,0.06)] transition-all">
           <textarea
             value={input}
@@ -177,9 +174,6 @@ export default function AITutor({ questionContext, chatHistory, onUpdateHistory,
           >
             <Send size={14} />
           </button>
-        </div>
-        <div className="text-center mt-2.5 text-[10px] text-gray-400">
-          AI can make mistakes. Verify mathematical steps.
         </div>
       </div>
     </div>
