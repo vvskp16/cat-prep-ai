@@ -868,6 +868,96 @@ async def get_full_set(context_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch set: {str(e)}")
 
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    question_context: Dict[str, Any]
+    messages: List[ChatMessage]
+    model: str = "gpt-5.4-mini"
+
+# Helper function to convert local images to Base64
+def encode_image_to_base64(image_path: str):
+    try:
+        with open(image_path, "rb") as image_file:
+            return base64.b64encode(image_file.read()).decode('utf-8')
+    except Exception as e:
+        print(f"Vision Error: Could not read image at {image_path}: {e}")
+        return None
+
+@app.post("/api/chat")
+async def ai_tutor_chat(request: ChatRequest):
+    try:
+        # 1. Prepare the System Prompt
+        context_str = json.dumps(request.question_context, indent=2)
+        system_instruction = (
+            "You are an elite CAT Prep AI Tutor. You are helping a student review a specific question.\n"
+            "Below is the exact JSON context of the question. Use this as your absolute source of truth.\n\n"
+            f"### QUESTION CONTEXT ###\n{context_str}"
+        )
+
+        openai_messages = [{"role": "system", "content": system_instruction}]
+        
+        # Add chat history
+        for msg in request.messages:
+            openai_messages.append({"role": msg.role, "content": msg.content})
+
+        # --- THE MAGIC: VISION INTEGRATION ---
+        # 2. Extract all markdown image paths from the question context
+        image_paths = re.findall(r'!\[.*?\]\((/images/[^\)]+)\)', context_str)
+        
+        # Also check your unified schema's local_image_paths array just in case
+        if "local_image_paths" in request.question_context:
+            for path in request.question_context["local_image_paths"]:
+                if path not in image_paths:
+                    image_paths.append(path)
+
+        # 3. If images exist, attach them to the LAST user message so the AI can "see" them
+        if image_paths and len(openai_messages) > 1:
+            last_user_msg_text = openai_messages[-1]["content"]
+            
+            # Convert the last user message from a String to a Multi-Modal Array
+            multimodal_content = [{"type": "text", "text": last_user_msg_text}]
+            
+            # Resolve the path to your Next.js public directory
+            frontend_public_dir = os.path.join(os.path.dirname(__file__), "cat-frontend", "public")
+            
+            for img_path in set(image_paths): # Use set to avoid duplicates
+                clean_path = img_path.split("?")[0] # strip query params if any
+                full_local_path = os.path.join(frontend_public_dir, clean_path.lstrip("/"))
+                
+                base64_image = encode_image_to_base64(full_local_path)
+                if base64_image:
+                    multimodal_content.append({
+                        "type": "image_url",
+                        "image_url": {
+                            # Using jpeg/png dynamically based on standard web usage
+                            "url": f"data:image/png;base64,{base64_image}" 
+                        }
+                    })
+            
+            # Override the text-only content with our new Vision-enabled content
+            openai_messages[-1]["content"] = multimodal_content
+
+        # 4. Call the LLM
+        model_to_use = request.model
+        if model_to_use not in ["gpt-5.4-mini", "gpt-4o", "o1-mini"]:
+            model_to_use = "gpt-5.4-mini"
+            
+        completion = openai_client.chat.completions.create(
+            model=model_to_use,
+            messages=openai_messages,
+        )
+
+        reply_text = completion.choices[0].message.content
+
+        return {"reply": reply_text}
+
+    except Exception as e:
+        print(f"Chat Error: {e}")
+        return {"reply": f"System error: {str(e)}"}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

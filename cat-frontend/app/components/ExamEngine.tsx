@@ -1,13 +1,16 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import MathRenderer from './MathRenderer';
+import AITutor from './AITutor';
+import { CheckCircle, Copy, Sparkles, X } from 'lucide-react';
 
 // --- INTERFACES ---
 interface ParentContext { context_id: string; context_type: string; context_body: string; context_images?: string[]; }
 interface QuestionOptions { A?: string; B?: string; C?: string; D?: string; }
 interface OriginalSource { label: string; link: string; }
+interface Message { role: 'user' | 'assistant'; content: string; }
 
 export interface Question {
   id: string; subject: string; question_type: string; topic: string; sub_topic: string;
@@ -56,15 +59,53 @@ export default function ExamEngine({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>(pastUserAnswers);
   const [timeSpent, setTimeSpent] = useState<Record<string, number>>(pastTimeSpent);
+  const [sessionChats, setSessionChats] = useState<Record<string, Message[]>>({});
+  const [showAITutor, setShowAITutor] = useState(false);
   const [timeLeft, setTimeLeft] = useState(initialTimeInSeconds);
   
   const [isSubmitted, setIsSubmitted] = useState(isReviewMode);
   const [showExitModal, setShowExitModal] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [markedForReview, setMarkedForReview] = useState<Set<number>>(new Set());
   
   const [revealedSolutions, setRevealedSolutions] = useState<Set<string>>(new Set());
 
+  // --- DRAGGABLE RESIZER STATE ---
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [leftWidth, setLeftWidth] = useState(75); // Default to 75/25 split
+  const [isDragging, setIsDragging] = useState(false);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging || !containerRef.current) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+      // Constrain panels so they can't be dragged off-screen (keep between 20% and 80%)
+      if (newLeftWidth > 20 && newLeftWidth < 80) {
+        setLeftWidth(newLeftWidth);
+      }
+    };
+
+    const handleMouseUp = () => setIsDragging(false);
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize'; // Keep cursor while dragging
+      document.body.style.userSelect = 'none'; // Prevent text highlighting while dragging
+    } else {
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = 'auto';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
   const currentQuestion = testData[currentIndex];
+  const currentQuestionId = testData[currentIndex]?.id;
   const isCurrentlyRevealed = revealedSolutions.has(currentQuestion.id);
 
   useEffect(() => {
@@ -103,6 +144,13 @@ export default function ExamEngine({
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const handleCopyJson = () => {
+    const currentQuestion = testData[currentIndex];
+    navigator.clipboard.writeText(JSON.stringify(currentQuestion, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
   };
 
   const handleOptionSelect = (optionKey: string) => {
@@ -214,20 +262,26 @@ export default function ExamEngine({
           <div className="flex-1 overflow-y-auto p-6 relative bg-white">
             <div className={currentQuestion.has_parent_context ? "grid grid-cols-1 lg:grid-cols-2 gap-8 h-full" : "max-w-4xl mx-auto"}>
               {currentQuestion.has_parent_context && currentQuestion.parent_context && (
-                  <div className="mb-6 p-6 bg-gray-50 rounded-xl border border-gray-200">
-                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Context</h3>
-                    <div className="text-lg text-gray-800 whitespace-pre-wrap">
-                      <MathRenderer content={cleanTextContent(currentQuestion.parent_context.context_body)} />
-                    </div>
-                    {currentQuestion.parent_context.context_images?.map((img, idx) => (
-                      <img key={idx} src={getValidImageSrc(img)} alt="Context" className="mt-4 max-w-full rounded-lg shadow-sm border border-gray-200" />
-                    ))}
+                <div className="mb-6 p-6 bg-gray-50 rounded-xl border border-gray-200">
+                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Context</h3>
+                  <div className="text-lg text-gray-800 whitespace-pre-wrap">
+                    <MathRenderer content={cleanTextContent(currentQuestion.parent_context.context_body)} />
                   </div>
-                )}
+                  {currentQuestion.parent_context.context_images?.map((img, idx) => (
+                    <img key={idx} src={getValidImageSrc(img)} alt="Context" className="mt-4 max-w-full rounded-lg shadow-sm border border-gray-200" />
+                  ))}
+                </div>
+              )}
 
                <div className="flex flex-col pb-20">
                   <div className="flex items-center justify-between mb-4">
                      <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">Question {currentIndex + 1}</span>
+                     <button 
+                      onClick={handleCopyJson}
+                      title="Copy Question JSON"
+                      className="p-1 hover:bg-gray-200 rounded transition-colors">
+                      {copied ? <CheckCircle size={18} className="text-green-600" /> : <Copy size={18} className="text-gray-500" />}
+                    </button>
                   </div>
                   <div className="text-lg text-gray-800 font-medium mb-6 whitespace-pre-wrap">
                     <MathRenderer content={cleanTextContent(currentQuestion.question_text)} />
@@ -412,10 +466,38 @@ export default function ExamEngine({
                     </div>
                  </div>
 
-                 <button className="w-full mt-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-bold py-2.5 rounded-lg shadow-sm hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
-                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                   Ask AI Tutor
-                 </button>
+                 <div className="mt-2 border-t border-gray-200 pt-4">
+                   {!showAITutor ? (
+                     <button
+                       onClick={() => setShowAITutor(true)}
+                       className="w-full py-3 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold rounded-lg border border-indigo-200 transition-colors shadow-sm"
+                     >
+                       <Sparkles size={18} />
+                       Confused? Ask the AI Tutor
+                     </button>
+                   ) : (
+                     <div className="relative h-[440px] animate-in fade-in slide-in-from-bottom-4 duration-300">
+                       <button
+                         onClick={() => setShowAITutor(false)}
+                         title="Close AI Tutor"
+                         className="absolute -top-3 -right-3 bg-white border shadow-md rounded-full p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 z-10 transition-colors"
+                       >
+                         <X size={16} />
+                       </button>
+
+                       <AITutor
+                         questionContext={currentQuestion}
+                         chatHistory={sessionChats[currentQuestionId] || []}
+                         onUpdateHistory={(newHistory) => {
+                           setSessionChats(prev => ({
+                             ...prev,
+                             [currentQuestionId]: newHistory
+                           }));
+                         }}
+                       />
+                     </div>
+                   )}
+                 </div>
                </div>
              )}
           </div>
