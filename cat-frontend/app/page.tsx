@@ -68,8 +68,8 @@ export default function EnhancedTestGenerator() {
     async function fetchDynamicTaxonomy() {
       setIsFetchingFilters(true);
       try {
-        // Ping your FastAPI backend for the live metadata schema
-        const response = await fetch(`http://localhost:8000/api/taxonomy?subject=${subject}`);
+        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://192.168.0.113:8000";
+        const response = await fetch(`${apiBaseUrl}/api/taxonomy?subject=${encodeURIComponent(subject)}`);
         
         if (!response.ok) {
           throw new Error(`Failed to fetch taxonomy. Status: ${response.status}`);

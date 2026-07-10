@@ -141,7 +141,7 @@ export default function ExtractionTester() {
     if (!targetQuestion) return;
 
     try {
-      const response = await fetch('http://localhost:8000/api/approve', {
+      const response = await fetch('http://192.168.0.113:8000/api/approve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(targetQuestion),

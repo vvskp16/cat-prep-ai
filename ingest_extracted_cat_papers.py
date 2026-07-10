@@ -110,7 +110,7 @@ def main():
     )
 
     # Create fresh collection
-    collection = client.create_collection(
+    collection = client.get_or_create_collection(
         name="cat_questions",
         embedding_function=openai_ef
     )

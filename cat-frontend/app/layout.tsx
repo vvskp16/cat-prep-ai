@@ -39,10 +39,6 @@ export default function RootLayout({
                 href="/search"   className="text-slate-300 hover:text-white transition-colors">
                 Semantic Search
               </Link>
-              <Link 
-                href="/admin/ingestion"   className="text-slate-300 hover:text-white transition-colors">
-                Data Ingestion
-              </Link>
             </div>
           </div>
         </nav>
