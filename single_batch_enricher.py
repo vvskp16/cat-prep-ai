@@ -51,7 +51,7 @@ def process_single_batch(file_name: str, target_batch_idx: int):
     # Deduplicate to save LLM tokens
     unique_image_paths = list(set(image_paths))
 
-    # 2. ENCODE TO BASE64 FOR GPT-4o-MINI
+    # 2. ENCODE TO BASE64 FOR GPT-5.4-MINI
     base64_images = []
     for path in unique_image_paths:
         local_path = IMAGE_DIR / path.lstrip("/")

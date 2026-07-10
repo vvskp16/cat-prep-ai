@@ -16,7 +16,7 @@ interface AITutorProps {
 export default function AITutor({ questionContext, chatHistory, onUpdateHistory }: AITutorProps) {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedModel, setSelectedModel] = useState('gpt-4o-mini');
+  const [selectedModel, setSelectedModel] = useState('gpt-5.4-mini');
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -65,7 +65,7 @@ export default function AITutor({ questionContext, chatHistory, onUpdateHistory 
           onChange={(e) => setSelectedModel(e.target.value)}
           className="text-xs border rounded p-1 bg-gray-50 outline-none text-gray-600"
         >
-          <option value="gpt-4o-mini">⚡ Fast (GPT-4o-mini)</option>
+          <option value="gpt-5.4-mini">⚡ Fast (GPT-5.4-mini)</option>
           <option value="gpt-4o">🎯 Accurate (GPT-4o)</option>
           <option value="o1-mini">🧠 Deep Reasoning (o1-mini)</option>
         </select>

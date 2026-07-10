@@ -59,7 +59,7 @@ def process_all_files():
             # Deduplicate to save LLM tokens
             unique_image_paths = list(set(image_paths))
 
-            # 2. ENCODE TO BASE64 FOR GPT-4o-MINI
+            # 2. ENCODE TO BASE64 FOR GPT-5.4-MINI
             base64_images = []
             for path in unique_image_paths:
                 # Resolve the relative URL to your local filesystem
