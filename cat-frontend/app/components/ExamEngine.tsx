@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import MathRenderer from './MathRenderer';
 import AITutor from './AITutor';
-import { CheckCircle, Copy, Sparkles, X } from 'lucide-react';
+import { CheckCircle, Copy, Sparkles, X, ChevronLeft, ChevronRight, Bookmark, Eraser } from 'lucide-react';
 
 // --- INTERFACES ---
 interface ParentContext { context_id: string; context_type: string; context_body: string; context_images?: string[]; }
@@ -29,16 +29,14 @@ interface ExamEngineProps {
   pastTimeSpent?: Record<string, number>; 
   onExit?: () => void;
 }
-// Strips out raw JSON arrays that accidentally leaked into the text body
+
 const cleanTextContent = (text: string | undefined) => {
   if (!text) return "";
   return text.replace(/\[\s*["']\/images\/[^\]]+["']\s*\]/g, '').trim();
 };
 
-// Strips double quotes/brackets if the image string got double-encoded
 const getValidImageSrc = (rawImg: string) => {
   let cleanSrc = typeof rawImg === 'string' ? rawImg.replace(/[\[\]"']/g, '').trim() : '';
-  // Ensure it has a leading slash for the Next.js public directory
   if (cleanSrc && !cleanSrc.startsWith('/')) {
       cleanSrc = '/' + cleanSrc;
   }
@@ -70,9 +68,8 @@ export default function ExamEngine({
   
   const [revealedSolutions, setRevealedSolutions] = useState<Set<string>>(new Set());
 
-  // --- DRAGGABLE RESIZER STATE ---
   const containerRef = useRef<HTMLDivElement>(null);
-  const [leftWidth, setLeftWidth] = useState(75); // Default to 75/25 split
+  const [leftWidth, setLeftWidth] = useState(70); 
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
@@ -80,24 +77,21 @@ export default function ExamEngine({
       if (!isDragging || !containerRef.current) return;
       const containerRect = containerRef.current.getBoundingClientRect();
       const newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
-      // Constrain panels so they can't be dragged off-screen (keep between 20% and 80%)
-      if (newLeftWidth > 20 && newLeftWidth < 80) {
+      if (newLeftWidth > 30 && newLeftWidth < 75) {
         setLeftWidth(newLeftWidth);
       }
     };
-
     const handleMouseUp = () => setIsDragging(false);
 
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize'; // Keep cursor while dragging
-      document.body.style.userSelect = 'none'; // Prevent text highlighting while dragging
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
     } else {
       document.body.style.cursor = 'default';
       document.body.style.userSelect = 'auto';
     }
-
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
@@ -113,8 +107,6 @@ export default function ExamEngine({
       if (timeLeft <= 0 && !isSubmitted) submitExam();
       return;
     }
-    
-    // 🛑 Pause the timer when the exit modal is open
     if (showExitModal) return;
 
     const timer = setInterval(() => {
@@ -124,7 +116,6 @@ export default function ExamEngine({
         [currentQuestion.id]: (prev[currentQuestion.id] || 0) + 1
       }));
     }, 1000);
-    
     return () => clearInterval(timer);
   }, [timeLeft, isSubmitted, currentQuestion.id, showExitModal]);
 
@@ -150,7 +141,7 @@ export default function ExamEngine({
     const currentQuestion = testData[currentIndex];
     navigator.clipboard.writeText(JSON.stringify(currentQuestion, null, 2));
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000); // Reset after 2 seconds
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleOptionSelect = (optionKey: string) => {
@@ -165,7 +156,6 @@ export default function ExamEngine({
 
   const submitExam = () => {
     setShowExitModal(false);
-    
     const pastExams = JSON.parse(localStorage.getItem('cat_exam_history') || '[]');
     const newExamRecord = {
       id: `EXAM_${Date.now()}`,
@@ -176,7 +166,6 @@ export default function ExamEngine({
       totalTimeTaken: initialTimeInSeconds - timeLeft
     };
     localStorage.setItem('cat_exam_history', JSON.stringify([newExamRecord, ...pastExams]));
-    // Sends the user straight to the summary page instead of staying in the engine
     router.push('/history');
   };
 
@@ -201,11 +190,7 @@ export default function ExamEngine({
 
   const parseSources = (sourcesStr?: OriginalSource[] | string): OriginalSource[] => {
     if (!sourcesStr) return [];
-    
-    // If FastAPI successfully passed it as a Javascript Array, just return it!
     if (Array.isArray(sourcesStr)) return sourcesStr;
-    
-    // If it comes through as a string from LocalStorage or older DB records
     try { 
       const parsed = JSON.parse(sourcesStr);
       return Array.isArray(parsed) ? parsed : [];
@@ -216,7 +201,7 @@ export default function ExamEngine({
 
   return (
     <>
-      <div className="fixed inset-0 z-50 bg-gray-50 flex flex-col h-screen overflow-hidden">
+      <div className="fixed inset-0 z-50 bg-gray-50 flex flex-col h-[100dvh] w-full overflow-hidden">
         {/* HEADER */}
         <div className={`bg-white border-b shadow-sm px-6 py-3 flex justify-between items-center shrink-0 ${isSubmitted ? 'border-b-4 border-b-indigo-500' : ''}`}>
           <span className="font-bold text-gray-700 flex items-center gap-2">
@@ -242,11 +227,7 @@ export default function ExamEngine({
                 type="button" 
                 onClick={(e) => {
                   e.preventDefault();
-                  if (onExit) {
-                    onExit(); // If a parent component passed a close function, use it
-                  } else {
-                    window.location.href = '/history'; // Hard-force the browser to reload the history route
-                  }
+                  if (onExit) onExit(); else window.location.href = '/history'; 
                 }} 
                 className="bg-gray-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center gap-2"
               >
@@ -256,287 +237,297 @@ export default function ExamEngine({
           )}
         </div>
         
-        {/* MIDDLE WORKSPACE */}
-        <div className="flex flex-1 overflow-hidden">
+        {/* WORKSPACE with NATIVE RESIZER */}
+        <div className="flex flex-1 overflow-hidden" ref={containerRef}>
+          
           {/* LEFT PANE */}
-          <div className="flex-1 overflow-y-auto p-6 relative bg-white">
-            <div className={currentQuestion.has_parent_context ? "grid grid-cols-1 lg:grid-cols-2 gap-8 h-full" : "max-w-4xl mx-auto"}>
-              {currentQuestion.has_parent_context && currentQuestion.parent_context && (
-                <div className="mb-6 p-6 bg-gray-50 rounded-xl border border-gray-200">
-                  <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Context</h3>
-                  <div className="text-lg text-gray-800 whitespace-pre-wrap">
-                    <MathRenderer content={cleanTextContent(currentQuestion.parent_context.context_body)} />
-                  </div>
-                  {currentQuestion.parent_context.context_images?.map((img, idx) => (
-                    <img key={idx} src={getValidImageSrc(img)} alt="Context" className="mt-4 max-w-full rounded-lg shadow-sm border border-gray-200" />
-                  ))}
-                </div>
-              )}
-
-               <div className="flex flex-col pb-20">
-                  <div className="flex items-center justify-between mb-4">
-                     <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">Question {currentIndex + 1}</span>
-                     <button 
-                      onClick={handleCopyJson}
-                      title="Copy Question JSON"
-                      className="p-1 hover:bg-gray-200 rounded transition-colors">
-                      {copied ? <CheckCircle size={18} className="text-green-600" /> : <Copy size={18} className="text-gray-500" />}
+          <div 
+            className="bg-white flex flex-col h-full relative" 
+            style={{ flexBasis: `${leftWidth}%`, flexGrow: 1, flexShrink: 1, minWidth: '30%' }}
+          >
+            {/* FIXED TOOLBAR (Permanently anchored at top, never overlaps with padding) */}
+            <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-100 shadow-sm z-10 shrink-0">
+                <span className="text-sm font-bold text-gray-500 uppercase tracking-widest">
+                  Question {currentIndex + 1} <span className="lowercase text-gray-400 text-xs font-medium">of {testData.length}</span>
+                </span>
+                
+                <div className="flex items-center gap-3">
+                  {!isSubmitted && (
+                    <div className="flex items-center gap-1 border-r border-gray-200 pr-3 mr-1">
+                      <button onClick={() => {
+                          const updated = new Set(markedForReview);
+                          updated.has(currentIndex) ? updated.delete(currentIndex) : updated.add(currentIndex);
+                          setMarkedForReview(updated);
+                      }} title="Mark for Review" className={`p-2 rounded-md transition-colors flex items-center gap-1 ${markedForReview.has(currentIndex) ? 'bg-purple-100 text-purple-700' : 'hover:bg-gray-100 text-gray-500'}`}>
+                        <Bookmark size={16} className={markedForReview.has(currentIndex) ? 'fill-current' : ''} />
+                      </button>
+                      <button onClick={() => {
+                          const updated = { ...userAnswers };
+                          delete updated[currentQuestion.id];
+                          setUserAnswers(updated);
+                      }} title="Clear Answer" className="p-2 hover:bg-gray-100 text-gray-500 rounded-md transition-colors">
+                        <Eraser size={16} />
+                      </button>
+                    </div>
+                  )}
+                  
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setCurrentIndex(prev => Math.max(0, prev - 1))} disabled={currentIndex === 0} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold rounded-lg disabled:opacity-40 transition-colors flex items-center gap-1">
+                      <ChevronLeft size={16} /> Prev
+                    </button>
+                    <button onClick={() => setCurrentIndex(prev => Math.min(testData.length - 1, prev + 1))} disabled={currentIndex === testData.length - 1} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg disabled:opacity-40 transition-colors flex items-center gap-1 shadow-sm">
+                      Next <ChevronRight size={16} />
                     </button>
                   </div>
-                  <div className="text-lg text-gray-800 font-medium mb-6 whitespace-pre-wrap">
-                    <MathRenderer content={cleanTextContent(currentQuestion.question_text)} />
+                  
+                  <button onClick={handleCopyJson} title="Copy Question JSON" className="p-2 hover:bg-gray-100 rounded-md transition-colors ml-2">
+                      {copied ? <CheckCircle size={18} className="text-green-600" /> : <Copy size={18} className="text-gray-500" />}
+                  </button>
+                </div>
+            </div>
+
+            {/* ISOLATED SCROLL CONTAINER FOR QUESTION/CONTEXT */}
+            <div className="flex-1 overflow-y-auto p-6 pb-20">
+              <div className={currentQuestion.has_parent_context ? "grid grid-cols-1 lg:grid-cols-2 gap-8 h-full" : "max-w-4xl mx-auto"}>
+                {currentQuestion.has_parent_context && currentQuestion.parent_context && (
+                  <div className="mb-6 p-6 bg-gray-50 rounded-xl border border-gray-200">
+                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Context</h3>
+                    <div className="text-lg text-gray-800 whitespace-pre-wrap">
+                      <MathRenderer content={cleanTextContent(currentQuestion.parent_context.context_body)} />
+                    </div>
+                    {currentQuestion.parent_context.context_images?.map((img, idx) => (
+                      <img key={idx} src={getValidImageSrc(img)} alt="Context" className="mt-4 max-w-full rounded-lg shadow-sm border border-gray-200" />
+                    ))}
                   </div>
-                  {currentQuestion.question_images?.map((img, idx) => (
-                    <img key={idx} src={getValidImageSrc(img)} alt="Question" className="mb-6 max-w-full rounded-lg shadow-sm border border-gray-200" />
-                  ))}
+                )}
 
-                  {/* Options */}
-                  {currentQuestion.question_type === 'MCQ' && currentQuestion.options ? (
-                    <div className="space-y-3">
-                      {Object.entries(currentQuestion.options).map(([key, val]) => {
-                        if (!val) return null;
-                        
-                        let btnClass = "bg-white hover:bg-gray-50 border-gray-200";
-                        const isSelected = userAnswers[currentQuestion.id] === key;
-                        const isCorrectOption = currentQuestion.correct_answer === key;
-
-                        if (isSubmitted) {
-                          if (isCurrentlyRevealed) {
-                            if (isCorrectOption) btnClass = "bg-green-50 border-green-500 ring-1 ring-green-500 shadow-sm";
-                            else if (isSelected && !isCorrectOption) btnClass = "bg-red-50 border-red-400 opacity-80";
-                            else btnClass = "bg-gray-50 border-gray-200 opacity-60";
-                          } else {
-                            if (isSelected) btnClass = "bg-blue-50 border-blue-400 opacity-80";
-                            else btnClass = "bg-gray-50 border-gray-200 opacity-80";
-                          }
-                        } else if (isSelected) {
-                          btnClass = "bg-blue-50 border-blue-600 ring-1 ring-blue-600 shadow-sm";
-                        }
-
-                        return (
-                          <button key={key} onClick={() => handleOptionSelect(key)} disabled={isSubmitted}
-                            className={`w-full text-left p-4 border rounded-xl transition-all relative pr-24 ${btnClass} ${isSubmitted ? 'cursor-default' : 'cursor-pointer'}`}>
-                            
-                            {/* Flex Alignment fixes text wrapping under the option key */}
-                            <div className="flex items-start gap-3">
-                              <span className="font-bold text-gray-700 mt-[2px] min-w-[1.2rem]">{key}.</span> 
-                              <div className="flex-1 overflow-x-auto"><MathRenderer content={val} /></div>
-                            </div>
-                            
-                            {/* Option Badges */}
-                            {isSubmitted && isCurrentlyRevealed && isCorrectOption && (
-                              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-green-800 bg-green-200 px-2 py-1 rounded-full border border-green-300 flex items-center gap-1 shadow-sm">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg> Correct
-                              </span>
-                            )}
-                            {isSubmitted && isCurrentlyRevealed && isSelected && !isCorrectOption && (
-                              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-800 bg-red-200 px-2 py-1 rounded-full border border-red-300 flex items-center gap-1 shadow-sm">
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/></svg> Your Answer
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
+                <div className="flex flex-col">
+                    <div className="text-lg text-gray-800 font-medium mb-6 whitespace-pre-wrap">
+                      <MathRenderer content={cleanTextContent(currentQuestion.question_text)} />
                     </div>
-                  ) : (
-                    <div className="mt-4">
-                      <input type="text" value={userAnswers[currentQuestion.id] || ''} onChange={handleTITAInput} disabled={isSubmitted} placeholder="Type your answer here..."
-                        className={`w-full p-4 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none ${isSubmitted ? 'bg-gray-50 text-gray-600 border-gray-300' : 'border-gray-300'}`}/>
-                      
-                      {isSubmitted && isCurrentlyRevealed && (
-                        <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-xl text-green-900 text-sm font-medium flex items-center gap-2 animate-fadeIn">
-                          <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                          Correct Answer: <span className="font-bold text-base">{currentQuestion.correct_answer}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
+                    {currentQuestion.question_images?.map((img, idx) => (
+                      <img key={idx} src={getValidImageSrc(img)} alt="Question" className="mb-6 max-w-full rounded-lg shadow-sm border border-gray-200" />
+                    ))}
 
-                  {/* REVIEW MODE: Answer Mask / Solution Block with Toggle */}
-                  {isSubmitted && (
-                    <div className="mt-10 space-y-4 border-t border-gray-100 pt-6">
-                      <button 
-                        onClick={() => {
-                          const newSet = new Set(revealedSolutions);
-                          newSet.has(currentQuestion.id) ? newSet.delete(currentQuestion.id) : newSet.add(currentQuestion.id);
-                          setRevealedSolutions(newSet);
-                        }} 
-                        className={`w-full py-4 border-2 border-dashed font-bold rounded-xl transition-colors flex items-center justify-center gap-2 ${isCurrentlyRevealed ? 'border-gray-300 text-gray-500 hover:bg-gray-50' : 'border-indigo-300 text-indigo-700 hover:bg-indigo-50'}`}
-                      >
-                        {isCurrentlyRevealed ? (
-                          <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg> Hide Answer & Solution</>
-                        ) : (
-                          <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.543 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> Reveal Correct Answer & Solution</>
-                        )}
-                      </button>
-
-                      {isCurrentlyRevealed && (
-                        <div className="animate-fadeIn space-y-4">
-                          <div className="p-6 bg-indigo-50/50 border border-indigo-100 rounded-xl">
-                            <h4 className="font-bold text-indigo-900 mb-4 flex items-center gap-2">
-                              <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-                              Solution
-                            </h4>
-                            <div className="mt-4">
-                              <h4 className="font-bold text-gray-700 mb-2">Solution:</h4>
-                              <div className="text-gray-700 whitespace-pre-wrap">
-                                <MathRenderer content={cleanTextContent(currentQuestion.solution_text) || "No detailed solution provided."} />
-                              </div>
-                              {currentQuestion.solution_images?.map((img, idx) => (
-                                <img key={idx} src={getValidImageSrc(img)} alt="Solution" className="mt-4 max-w-full rounded-lg shadow-sm border border-gray-200" />
-                              ))}
-                            </div>
-                          </div>
+                    {/* Options */}
+                    {currentQuestion.question_type === 'MCQ' && currentQuestion.options ? (
+                      <div className="space-y-3">
+                        {Object.entries(currentQuestion.options).map(([key, val]) => {
+                          if (!val) return null;
                           
-                          {parseSources(currentQuestion.original_sources).length > 0 && (
-                            <div className="flex flex-wrap gap-2 items-center p-4 bg-gray-50 border border-gray-200 rounded-xl">
-                              <span className="text-xs font-bold text-gray-500 uppercase tracking-wide mr-2 flex items-center gap-1">
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
-                                Original Sources:
-                              </span>
-                              {parseSources(currentQuestion.original_sources).map((src: any, i: number) => (
-                                <a key={i} href={src.link} target="_blank" rel="noreferrer" className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-full hover:bg-blue-100 transition-colors">
-                                  {src.label}
-                                </a>
-                              ))}
-                            </div>
+                          let btnClass = "bg-white hover:bg-gray-50 border-gray-200";
+                          const isSelected = userAnswers[currentQuestion.id] === key;
+                          const isCorrectOption = currentQuestion.correct_answer === key;
+
+                          if (isSubmitted) {
+                            if (isCurrentlyRevealed) {
+                              if (isCorrectOption) btnClass = "bg-green-50 border-green-500 ring-1 ring-green-500 shadow-sm";
+                              else if (isSelected && !isCorrectOption) btnClass = "bg-red-50 border-red-400 opacity-80";
+                              else btnClass = "bg-gray-50 border-gray-200 opacity-60";
+                            } else {
+                              if (isSelected) btnClass = "bg-blue-50 border-blue-400 opacity-80";
+                              else btnClass = "bg-gray-50 border-gray-200 opacity-80";
+                            }
+                          } else if (isSelected) {
+                            btnClass = "bg-blue-50 border-blue-600 ring-1 ring-blue-600 shadow-sm";
+                          }
+
+                          return (
+                            <button key={key} onClick={() => handleOptionSelect(key)} disabled={isSubmitted}
+                              className={`w-full text-left p-4 border rounded-xl transition-all relative pr-24 ${btnClass} ${isSubmitted ? 'cursor-default' : 'cursor-pointer'}`}>
+                              
+                              <div className="flex items-start gap-3">
+                                <span className="font-bold text-gray-700 mt-[2px] min-w-[1.2rem]">{key}.</span> 
+                                <div className="flex-1 overflow-x-auto"><MathRenderer content={val} /></div>
+                              </div>
+                              
+                              {/* Option Badges */}
+                              {isSubmitted && isCurrentlyRevealed && isCorrectOption && (
+                                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-green-800 bg-green-200 px-2 py-1 rounded-full border border-green-300 flex items-center gap-1 shadow-sm">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg> Correct
+                                </span>
+                              )}
+                              {isSubmitted && isCurrentlyRevealed && isSelected && !isCorrectOption && (
+                                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-800 bg-red-200 px-2 py-1 rounded-full border border-red-300 flex items-center gap-1 shadow-sm">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/></svg> Your Answer
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-4">
+                        <input type="text" value={userAnswers[currentQuestion.id] || ''} onChange={handleTITAInput} disabled={isSubmitted} placeholder="Type your answer here..."
+                          className={`w-full p-4 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none ${isSubmitted ? 'bg-gray-50 text-gray-600 border-gray-300' : 'border-gray-300'}`}/>
+                        
+                        {isSubmitted && isCurrentlyRevealed && (
+                          <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-xl text-green-900 text-sm font-medium flex items-center gap-2 animate-fadeIn">
+                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            Correct Answer: <span className="font-bold text-base">{currentQuestion.correct_answer}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* REVIEW MODE: Answer Mask / Solution Block with Toggle */}
+                    {isSubmitted && (
+                      <div className="mt-10 space-y-4 border-t border-gray-100 pt-6">
+                        <button 
+                          onClick={() => {
+                            const newSet = new Set(revealedSolutions);
+                            newSet.has(currentQuestion.id) ? newSet.delete(currentQuestion.id) : newSet.add(currentQuestion.id);
+                            setRevealedSolutions(newSet);
+                          }} 
+                          className={`w-full py-4 border-2 border-dashed font-bold rounded-xl transition-colors flex items-center justify-center gap-2 ${isCurrentlyRevealed ? 'border-gray-300 text-gray-500 hover:bg-gray-50' : 'border-indigo-300 text-indigo-700 hover:bg-indigo-50'}`}
+                        >
+                          {isCurrentlyRevealed ? (
+                            <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg> Hide Answer & Solution</>
+                          ) : (
+                            <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.543 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> Reveal Correct Answer & Solution</>
                           )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-               </div>
+                        </button>
+
+                        {isCurrentlyRevealed && (
+                          <div className="animate-fadeIn space-y-4">
+                            <div className="p-6 bg-indigo-50/50 border border-indigo-100 rounded-xl">
+                              <h4 className="font-bold text-indigo-900 mb-4 flex items-center gap-2">
+                                <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                                Solution
+                              </h4>
+                              <div className="mt-4">
+                                <h4 className="font-bold text-gray-700 mb-2">Solution:</h4>
+                                <div className="text-gray-700 whitespace-pre-wrap">
+                                  <MathRenderer content={cleanTextContent(currentQuestion.solution_text) || "No detailed solution provided."} />
+                                </div>
+                                {currentQuestion.solution_images?.map((img, idx) => (
+                                  <img key={idx} src={getValidImageSrc(img)} alt="Solution" className="mt-4 max-w-full rounded-lg shadow-sm border border-gray-200" />
+                                ))}
+                              </div>
+                            </div>
+                            
+                            {parseSources(currentQuestion.original_sources).length > 0 && (
+                              <div className="flex flex-wrap gap-2 items-center p-4 bg-gray-50 border border-gray-200 rounded-xl">
+                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wide mr-2 flex items-center gap-1">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                                  Original Sources:
+                                </span>
+                                {parseSources(currentQuestion.original_sources).map((src: any, i: number) => (
+                                  <a key={i} href={src.link} target="_blank" rel="noreferrer" className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-full hover:bg-blue-100 transition-colors">
+                                    {src.label}
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                </div>
+              </div>
             </div>
           </div>
 
+          {/* DRAGGABLE RESIZER HANDLE */}
+          <div
+            className="w-2 bg-gray-100 hover:bg-indigo-300 border-x border-gray-200 cursor-col-resize shrink-0 flex flex-col justify-center items-center transition-colors z-20 shadow-inner"
+            onMouseDown={() => setIsDragging(true)}
+          >
+            <div className="w-0.5 h-8 bg-gray-400 rounded-full" />
+          </div>
+
           {/* RIGHT SIDEBAR */}
-          <div className="w-80 bg-gray-50 border-l border-gray-200 shadow-sm shrink-0 flex flex-col p-5 overflow-y-auto">
-             <h3 className="font-bold text-gray-700 mb-4 uppercase text-xs tracking-wider">Question Palette</h3>
-             <div className="grid grid-cols-5 gap-2 mb-8">
-                {testData.map((_, index) => (
-                   <button key={index} onClick={() => setCurrentIndex(index)}
-                      className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all border ${getPaletteColor(index)}`}>
-                      {index + 1}
-                   </button>
-                ))}
-             </div>
-             
-             {isSubmitted && currentQuestion.metadata_hooks && (
-               <div className="mt-auto bg-white border border-gray-200 rounded-xl p-4 shadow-sm flex flex-col gap-4">
-                 
-                 <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
-                   <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
-                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                     Time Analytics
-                   </h4>
-                   <div className="flex justify-between items-center mb-1">
-                     <span className="text-xs font-medium text-slate-700">Time Spent on Question:</span>
-                     <span className="text-sm font-bold text-indigo-700">
-                       {formatTime(timeSpent[currentQuestion.id] || 0)}
-                     </span>
-                   </div>
-                 </div>
-
-                 <div>
-                    <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2">Diagnostic Data</h4>
-                    <div className="space-y-2">
-                      <div className="flex justify-between">
-                        <span className="text-[10px] text-gray-500 uppercase">Topic</span>
-                        <span className="text-xs font-semibold text-gray-800 text-right">{currentQuestion.topic}</span>
+          <div 
+            className="bg-gray-50 flex flex-col shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] z-10" 
+            style={{ flexBasis: `${100 - leftWidth}%`, flexGrow: 1, flexShrink: 1, minWidth: '25%' }}
+          >
+             {showAITutor ? (
+                /* FULL SCREEN AI TUTOR STATE */
+                <div className="flex-1 flex flex-col h-full bg-white animate-in slide-in-from-right duration-200 overflow-hidden relative shadow-[-15px_0_30px_-15px_rgba(0,0,0,0.08)] ring-1 ring-gray-100">
+                  <AITutor
+                    questionContext={currentQuestion}
+                    chatHistory={sessionChats[currentQuestionId] || []}
+                    onUpdateHistory={(newHistory) => {
+                      setSessionChats(prev => ({
+                        ...prev,
+                        [currentQuestionId]: newHistory
+                      }));
+                    }}
+                    onClose={() => setShowAITutor(false)}
+                  />
+                </div>
+             ) : (
+                /* PALETTE & DIAGNOSTICS STATE (Fractional Overflow Fix) */
+                <div className="p-5 flex-1 overflow-y-auto flex flex-col justify-between">
+                  <div>
+                      <h3 className="font-bold text-gray-700 mb-4 uppercase text-xs tracking-wider">Question Palette</h3>
+                      {/* FIX 2: Uniform Flexbox Gap Replaces Stretching CSS Grid */}
+                      <div className="flex flex-wrap gap-3 mb-8">
+                          {testData.map((_, index) => (
+                            <button key={index} onClick={() => setCurrentIndex(index)}
+                                className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-sm font-bold transition-all border shadow-sm ${getPaletteColor(index)}`}>
+                                {index + 1}
+                            </button>
+                          ))}
                       </div>
-                      
-                      {currentQuestion.sub_topic && (
-                        <div className="flex justify-between">
-                          <span className="text-[10px] text-gray-500 uppercase">Sub-Topic</span>
-                          <span className="text-xs font-semibold text-gray-800 text-right">{currentQuestion.sub_topic}</span>
-                        </div>
-                      )}
-
-                      <div className="flex justify-between items-center">
-                        <span className="text-[10px] text-gray-500 uppercase">Difficulty</span>
-                        <div className="flex items-center gap-1.5">
-                          <span className={`w-2 h-2 rounded-full ${currentQuestion.metadata_hooks.difficulty === 'Hard' ? 'bg-red-500' : currentQuestion.metadata_hooks.difficulty === 'Medium' ? 'bg-yellow-500' : 'bg-green-500'}`}></span>
-                          <span className="text-xs font-medium text-gray-700">
-                            {currentQuestion.metadata_hooks.difficulty} 
-                            {currentQuestion.metadata_hooks.difficulty_level && ` (${currentQuestion.metadata_hooks.difficulty_level})`}
+                  </div>
+                  
+                  {isSubmitted && currentQuestion.metadata_hooks && (
+                    <div className="mt-8 bg-white border border-gray-200 rounded-xl p-5 shadow-sm flex flex-col gap-5 shrink-0">
+                      <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          Time Analytics
+                        </h4>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-xs font-medium text-slate-700">Time Spent on Question:</span>
+                          <span className="text-sm font-bold text-indigo-700">
+                            {formatTime(timeSpent[currentQuestion.id] || 0)}
                           </span>
                         </div>
                       </div>
-                      {/* Trap Type Data Intentionally Removed For Clean UI */}
+
+                      <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Diagnostic Data</h4>
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center border-b border-gray-50 pb-2">
+                              <span className="text-[10px] text-gray-500 uppercase">Topic</span>
+                              <span className="text-xs font-semibold text-gray-800 text-right">{currentQuestion.topic}</span>
+                            </div>
+                            
+                            {currentQuestion.sub_topic && (
+                              <div className="flex justify-between items-center border-b border-gray-50 pb-2">
+                                <span className="text-[10px] text-gray-500 uppercase">Sub-Topic</span>
+                                <span className="text-xs font-semibold text-gray-800 text-right">{currentQuestion.sub_topic}</span>
+                              </div>
+                            )}
+
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] text-gray-500 uppercase">Difficulty</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${currentQuestion.metadata_hooks.difficulty === 'Hard' ? 'bg-red-500' : currentQuestion.metadata_hooks.difficulty === 'Medium' ? 'bg-yellow-500' : 'bg-green-500'}`}></span>
+                                <span className="text-xs font-medium text-gray-700">
+                                  {currentQuestion.metadata_hooks.difficulty} 
+                                  {currentQuestion.metadata_hooks.difficulty_level && ` (${currentQuestion.metadata_hooks.difficulty_level})`}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                      </div>
+
+                      <div className="mt-2 border-t border-gray-200 pt-5">
+                          <button
+                            onClick={() => setShowAITutor(true)}
+                            className="w-full py-3.5 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white font-bold rounded-lg border border-indigo-200 transition-colors shadow-sm"
+                          >
+                            <Sparkles size={18} />
+                            Confused? Ask the AI Tutor
+                          </button>
+                      </div>
                     </div>
-                 </div>
-
-                 <div className="mt-2 border-t border-gray-200 pt-4">
-                   {!showAITutor ? (
-                     <button
-                       onClick={() => setShowAITutor(true)}
-                       className="w-full py-3 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold rounded-lg border border-indigo-200 transition-colors shadow-sm"
-                     >
-                       <Sparkles size={18} />
-                       Confused? Ask the AI Tutor
-                     </button>
-                   ) : (
-                     <div className="relative h-[440px] animate-in fade-in slide-in-from-bottom-4 duration-300">
-                       <button
-                         onClick={() => setShowAITutor(false)}
-                         title="Close AI Tutor"
-                         className="absolute -top-3 -right-3 bg-white border shadow-md rounded-full p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 z-10 transition-colors"
-                       >
-                         <X size={16} />
-                       </button>
-
-                       <AITutor
-                         questionContext={currentQuestion}
-                         chatHistory={sessionChats[currentQuestionId] || []}
-                         onUpdateHistory={(newHistory) => {
-                           setSessionChats(prev => ({
-                             ...prev,
-                             [currentQuestionId]: newHistory
-                           }));
-                         }}
-                       />
-                     </div>
-                   )}
-                 </div>
-               </div>
+                  )}
+                </div>
              )}
-          </div>
-        </div>
-
-        {/* FIXED FOOTER */}
-        <div className="bg-white border-t shrink-0 p-4 flex justify-between items-center shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-10">
-          <div className="flex gap-4">
-            {!isSubmitted && (
-              <>
-                <button onClick={() => {
-                  const updated = new Set(markedForReview);
-                  updated.has(currentIndex) ? updated.delete(currentIndex) : updated.add(currentIndex);
-                  setMarkedForReview(updated);
-                  if (currentIndex < testData.length - 1) setCurrentIndex(currentIndex + 1);
-                }} className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" /></svg>
-                  Mark for Review
-                </button>
-                <button onClick={() => {
-                  const updated = { ...userAnswers };
-                  delete updated[currentQuestion.id];
-                  setUserAnswers(updated);
-                }} className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                  Clear
-                </button>
-              </>
-            )}
-          </div>
-          <div className="flex gap-4">
-            <button onClick={() => setCurrentIndex(prev => Math.max(0, prev - 1))} disabled={currentIndex === 0} className="px-6 py-2 bg-gray-100 text-gray-700 rounded-lg font-bold hover:bg-gray-200 disabled:opacity-50 flex items-center gap-2">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-              Previous
-            </button>
-            <button onClick={() => setCurrentIndex(prev => Math.min(testData.length - 1, prev + 1))} disabled={currentIndex === testData.length - 1} className="px-8 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 shadow-sm">
-              {isSubmitted ? 'Next Question' : 'Save & Next'}
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-            </button>
           </div>
         </div>
       </div>
@@ -550,12 +541,11 @@ export default function ExamEngine({
             </h2>
             
             <div className="flex justify-end gap-3 mt-6">
-              {/* NEW EXIT OPTION */}
               <button 
                 onClick={() => {
                   setShowExitModal(false);
                   if (onExit) onExit();
-                  else router.push('/'); // Route them back to dashboard without saving
+                  else router.push('/'); 
                 }} 
                 className="px-4 py-2.5 text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors"
               >
@@ -566,7 +556,6 @@ export default function ExamEngine({
                 Resume Exam
               </button>
               
-              {/* Updated to Blue to distinguish from the Exit action */}
               <button onClick={submitExam} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                 Yes, Submit
