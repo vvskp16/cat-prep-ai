@@ -229,11 +229,11 @@ dev_scripts/extraction/raw_html/
 dev_scripts/extraction/extracted_images_1/
 dev_scripts/extraction/extracted_json_1/
 dev_scripts/extraction/raw_html_1/
-chroma_db/
 chroma_db - Copy/
 dev_scripts/extraction/extracted_json - Copy/
 test.json
 ingestion_output.txt
+chroma_ready_docs_2/
 chroma_ready_docs.zip
 *.txt
 chroma_db_bkp
