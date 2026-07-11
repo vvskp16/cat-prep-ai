@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import MathRenderer from './MathRenderer';
 import AITutor from './AITutor';
-import { CheckCircle, Copy, Sparkles, X, ChevronLeft, ChevronRight, Bookmark, Eraser } from 'lucide-react';
+import { CheckCircle, Copy, Sparkles, ChevronLeft, ChevronRight, Bookmark, Eraser } from 'lucide-react';
 
 // --- INTERFACES ---
 interface ParentContext { context_id: string; context_type: string; context_body: string; context_images?: string[]; }
@@ -24,9 +24,12 @@ export interface Question {
 interface ExamEngineProps {
   initialTestData: Question[];
   initialTimeInSeconds?: number;
+  initialTimeLeft?: number;
+  initialCurrentIndex?: number;
   isReviewMode?: boolean;
   pastUserAnswers?: Record<string, string>;
   pastTimeSpent?: Record<string, number>; 
+  resumeExamId?: string;
   onExit?: () => void;
 }
 
@@ -46,20 +49,23 @@ const getValidImageSrc = (rawImg: string) => {
 export default function ExamEngine({ 
   initialTestData, 
   initialTimeInSeconds = 1200, 
+  initialTimeLeft,
+  initialCurrentIndex = 0,
   isReviewMode = false,
   pastUserAnswers = {},
   pastTimeSpent = {},
+  resumeExamId,
   onExit
 }: ExamEngineProps) {
   const router = useRouter();
 
   const [testData] = useState<Question[]>(initialTestData);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(initialCurrentIndex);
   const [userAnswers, setUserAnswers] = useState<Record<string, string>>(pastUserAnswers);
   const [timeSpent, setTimeSpent] = useState<Record<string, number>>(pastTimeSpent);
   const [sessionChats, setSessionChats] = useState<Record<string, Message[]>>({});
   const [showAITutor, setShowAITutor] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(initialTimeInSeconds);
+  const [timeLeft, setTimeLeft] = useState(initialTimeLeft ?? initialTimeInSeconds);
   
   const [isSubmitted, setIsSubmitted] = useState(isReviewMode);
   const [showExitModal, setShowExitModal] = useState(false);
@@ -72,7 +78,7 @@ export default function ExamEngine({
   const [isDragging, setIsDragging] = useState(false);
 
   // ==========================================
-  // FIX 1: LOCK GLOBAL SCROLLBAR (RED ARROW)
+  // Global Scroll Lock
   // ==========================================
   useEffect(() => {
     document.documentElement.style.overflow = 'hidden';
@@ -113,12 +119,15 @@ export default function ExamEngine({
   const currentQuestionId = testData[currentIndex]?.id;
   const isCurrentlyRevealed = revealedSolutions.has(currentQuestion.id);
 
+  // ==========================================
+  // Timer Hook
+  // ==========================================
   useEffect(() => {
     if (isSubmitted || timeLeft <= 0) {
       if (timeLeft <= 0 && !isSubmitted) submitExam();
       return;
     }
-    if (showExitModal) return;
+    if (showExitModal) return; // Pause timer when modal is active
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => prev - 1);
@@ -130,6 +139,29 @@ export default function ExamEngine({
     return () => clearInterval(timer);
   }, [timeLeft, isSubmitted, currentQuestion.id, showExitModal]);
 
+  // ==========================================
+  // Continuous Background Auto-Save
+  // ==========================================
+  useEffect(() => {
+    if (isSubmitted || !testData || testData.length === 0) return;
+    
+    const autoSaveData = {
+      id: resumeExamId || `AUTOSAVE_${Date.now()}`,
+      status: 'autosaved',
+      testData,
+      userAnswers,
+      timeSpent,
+      timeLeft,
+      currentIndex,
+      initialTimeInSeconds,
+      timestamp: new Date().toISOString()
+    };
+    localStorage.setItem('cat_autosaved_test', JSON.stringify(autoSaveData));
+  }, [userAnswers, timeSpent, timeLeft, currentIndex, isSubmitted, testData, resumeExamId, initialTimeInSeconds]);
+
+  // ==========================================
+  // Navigation Safeguards
+  // ==========================================
   useEffect(() => {
     if (isSubmitted) return;
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -167,17 +199,82 @@ export default function ExamEngine({
 
   const submitExam = () => {
     setShowExitModal(false);
-    const pastExams = JSON.parse(localStorage.getItem('cat_exam_history') || '[]');
+    localStorage.removeItem('cat_autosaved_test');
+    
+    let history = JSON.parse(localStorage.getItem('cat_exam_history') || '[]');
+    
+    // Remove original paused record if we are finalizing it
+    if (resumeExamId) {
+      history = history.filter((h: any) => h.id !== resumeExamId);
+    }
+
     const newExamRecord = {
       id: `EXAM_${Date.now()}`,
       date: new Date().toISOString(),
+      status: 'completed',
       testData,
       userAnswers,
       timeSpent, 
       totalTimeTaken: initialTimeInSeconds - timeLeft
     };
-    localStorage.setItem('cat_exam_history', JSON.stringify([newExamRecord, ...pastExams]));
-    router.push('/history');
+    
+    localStorage.setItem('cat_exam_history', JSON.stringify([newExamRecord, ...history]));
+    
+    if (onExit) onExit();
+    else router.push('/history');
+  };
+
+  // Helper to generate a clean string like Quant_Arithmetic_12071430
+  const generateAutoName = () => {
+    if (!testData || testData.length === 0) return `Session_${Date.now()}`;
+    const subject = testData[0].subject || "Mixed";
+    // Grab first word of topic and clean non-alphanumeric chars
+    let topic = testData[0].topic ? testData[0].topic.split(' ')[0] : "Practice";
+    topic = topic.replace(/[^a-zA-Z0-9]/g, '');
+
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mins = String(now.getMinutes()).padStart(2, '0');
+    
+    return `${subject}_${topic}_${dd}${mm}${hh}${mins}`;
+  };
+
+  const saveAndPauseExam = () => {
+    let history = JSON.parse(localStorage.getItem('cat_exam_history') || '[]');
+    
+    const existingEntry = history.find((h: any) => h.id === resumeExamId);
+    const examName = existingEntry?.name || generateAutoName();
+
+    const newEntry = {
+      id: resumeExamId && !resumeExamId.startsWith('AUTOSAVE_') ? resumeExamId : `PAUSED_${Date.now()}`,
+      name: examName,
+      date: new Date().toISOString(),
+      status: 'paused',
+      testData,
+      userAnswers,
+      timeSpent,
+      timeLeft,
+      currentIndex,
+      initialTimeInSeconds,
+      totalTimeTaken: initialTimeInSeconds - timeLeft
+    };
+
+    const existingIndex = history.findIndex((h: any) => h.id === newEntry.id);
+    if (existingIndex >= 0) {
+      history[existingIndex] = newEntry; 
+    } else {
+      history.unshift(newEntry);
+    }
+
+    localStorage.setItem('cat_exam_history', JSON.stringify(history));
+    localStorage.removeItem('cat_autosaved_test');
+    
+    setShowExitModal(false);
+
+    if (onExit) onExit();
+    else window.location.href = '/history';
   };
 
   const getPaletteColor = (index: number) => {
@@ -223,14 +320,19 @@ export default function ExamEngine({
             </span>
           </span>
           {!isSubmitted ? (
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3 sm:gap-6">
               <div className="text-xl font-mono text-blue-700 font-bold flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                  {formatTime(timeLeft)}
               </div>
-              <button onClick={() => setShowExitModal(true)} className="bg-red-600 text-white px-5 py-2.5 rounded-lg font-bold hover:bg-red-700 transition-colors shadow-sm flex items-center gap-2">
+              
+              <button 
+                onClick={() => setShowExitModal(true)} 
+                className="bg-red-50 text-red-700 border border-red-200 px-4 py-2 sm:px-5 sm:py-2.5 rounded-lg font-bold hover:bg-red-700 hover:text-white transition-colors shadow-sm flex items-center gap-2 group"
+              >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                End Test
+                <span className="hidden sm:inline">End Test</span>
+                <span className="sm:hidden">End</span>
               </button>
             </div>
           ) : (
@@ -243,7 +345,7 @@ export default function ExamEngine({
                 className="bg-gray-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
-                Exit
+                Exit Review
               </button>
           )}
         </div>
@@ -544,34 +646,53 @@ export default function ExamEngine({
         </div>
       </div>
 
+      {/* COMBINED EXIT / PAUSE MODAL */}
       {showExitModal && (
-        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 animate-fadeIn">
-            <h2 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
-              <svg className="w-6 h-6 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              End Exam?
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+              <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              End Exam Options
             </h2>
+            <p className="text-sm text-gray-500 mb-6">
+              Choose how you want to proceed. You can submit to see your results, pause to continue later, or discard this session entirely.
+            </p>
             
-            <div className="flex justify-end gap-3 mt-6">
+            <div className="flex flex-col gap-3">
               <button 
-                onClick={() => {
-                  setShowExitModal(false);
-                  if (onExit) onExit();
-                  else router.push('/'); 
-                }} 
-                className="px-4 py-2.5 text-red-600 hover:bg-red-50 rounded-lg font-medium transition-colors"
+                onClick={submitExam} 
+                className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2 transition-colors"
               >
-                Exit without Saving
+                <CheckCircle size={18} /> Submit & View Results
               </button>
               
-              <button onClick={() => setShowExitModal(false)} className="px-5 py-2.5 border border-gray-300 rounded-lg font-medium text-gray-700 hover:bg-gray-50">
-                Resume Exam
+              <button 
+                onClick={saveAndPauseExam} 
+                className="w-full py-3.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl font-bold hover:bg-amber-100 shadow-sm transition-colors flex items-center justify-center gap-2"
+              >
+                 <Bookmark size={18} /> Pause & Save for Later
               </button>
-              
-              <button onClick={submitExam} className="px-5 py-2.5 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-sm flex items-center gap-2">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                Yes, Submit
-              </button>
+
+              <div className="flex gap-3 mt-3">
+                <button 
+                  onClick={() => setShowExitModal(false)} 
+                  className="flex-1 py-3 border border-gray-300 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    setShowExitModal(false);
+                    localStorage.removeItem('cat_autosaved_test');
+                    if (onExit) onExit();
+                    else router.push('/'); 
+                  }} 
+                  className="flex-1 py-3 text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl font-semibold transition-colors"
+                >
+                  Discard Test
+                </button>
+              </div>
             </div>
           </div>
         </div>
