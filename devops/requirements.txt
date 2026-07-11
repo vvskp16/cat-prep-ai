@@ -1,0 +1,16 @@
+openai
+pydantic
+fastapi
+python-multipart
+uvicorn
+aiofiles
+pytesseract
+tesseract
+certifi
+pip-system-certs
+beautifulsoup4
+requests
+pathlib
+chromadb
+tenacity
+openai

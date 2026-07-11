@@ -216,3 +216,25 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Secrets
+set_envvar.ps1
+
+# chroma db ready files
+chroma_ready_docs/
+cat-frontend/public/images/
+dev_scripts/extraction/extracted_images/
+dev_scripts/extraction/extracted_json/
+dev_scripts/extraction/raw_html/
+dev_scripts/extraction/extracted_images_1/
+dev_scripts/extraction/extracted_json_1/
+dev_scripts/extraction/raw_html_1/
+chroma_db - Copy/
+dev_scripts/extraction/extracted_json - Copy/
+test.json
+ingestion_output.txt
+chroma_ready_docs_2/
+chroma_ready_docs.zip
+*.txt
+chroma_db_bkp
+cat-frontend/public/images_1/

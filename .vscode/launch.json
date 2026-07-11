@@ -1,0 +1,73 @@
+{
+    "configurations": [
+        {
+            "name": "Debug CAT Prep AI Python App",
+            "type": "debugpy",
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "ROOT_DIR": "${workspaceFolder}",
+                "AUTHORIZATION_STRATEGY": "JWT",
+                "HEART_BEAT_INTERVAL": "30000",
+                "LOG_LEVEL": "DEBUG"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        },
+        {
+            "name": "Debug CAT Prep AI (main.py)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/main.py",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "ROOT_DIR": "${workspaceFolder}",
+                "AUTHORIZATION_STRATEGY": "JWT",
+                "HEART_BEAT_INTERVAL": "30000",
+                "LOG_LEVEL": "DEBUG"
+            }
+        },
+        {
+            "name": "Debug FastAPI App (Uvicorn)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "uvicorn",
+            "args": [
+                "main:app",
+                "--host", "0.0.0.0",
+                "--port", "8000",
+                "--reload"
+            ],
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "ROOT_DIR": "${workspaceFolder}",
+                "AUTHORIZATION_STRATEGY": "JWT",
+                "HEART_BEAT_INTERVAL": "30000",
+                "LOG_LEVEL": "DEBUG"
+            }
+        },
+        {
+            "name": "Debug a file",
+            "type": "debugpy",
+            "python": "${workspaceFolder}/venv/Scripts/python.exe",
+            "request": "launch",
+            "program": "${workspaceFolder}/api.py",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}",
+                "ROOT_DIR": "${workspaceFolder}",
+                "AUTHORIZATION_STRATEGY": "JWT",
+                "HEART_BEAT_INTERVAL": "30000",
+                "LOG_LEVEL": "DEBUG"
+            },
+            "console": "integratedTerminal",
+            "justMyCode": false,
+        }
+    ]
+}

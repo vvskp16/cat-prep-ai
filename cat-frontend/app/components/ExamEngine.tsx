@@ -1,0 +1,778 @@
+'use client';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import MathRenderer from './MathRenderer';
+import AITutor from './AITutor';
+import { CheckCircle, Copy, Sparkles, ChevronLeft, ChevronRight, Bookmark, Eraser } from 'lucide-react';
+
+// --- INTERFACES ---
+interface ParentContext { context_id: string; context_type: string; context_body: string; context_images?: string[]; }
+interface QuestionOptions { A?: string; B?: string; C?: string; D?: string; }
+interface OriginalSource { label: string; link: string; }
+interface Message { role: 'user' | 'assistant'; content: string; }
+
+export interface Question {
+  id: string; subject: string; question_type: string; topic: string; sub_topic: string;
+  has_parent_context: boolean; parent_context: ParentContext | null;
+  question_text: string; options: QuestionOptions | null; correct_answer: string;
+  solution_text: string; original_sources?: OriginalSource[] | string; 
+  metadata_hooks?: { difficulty?: string; difficulty_level?: number; calculation_intensity?: string; };
+  question_images?: string[];
+  solution_images?: string[];
+}
+interface ExamEngineProps {
+  initialTestData: Question[];
+  initialTimeInSeconds?: number;
+  initialTimeLeft?: number;
+  initialCurrentIndex?: number;
+  isReviewMode?: boolean;
+  isSequential?: boolean; // Sequential Prop
+  pastUserAnswers?: Record<string, string>;
+  pastTimeSpent?: Record<string, number>; 
+  resumeExamId?: string;
+  onExit?: () => void;
+}
+
+const cleanTextContent = (text: string | undefined) => {
+  if (!text) return "";
+  return text.replace(/\[\s*["']\/images\/[^\]]+["']\s*\]/g, '').trim();
+};
+
+const getValidImageSrc = (rawImg: string) => {
+  let cleanSrc = typeof rawImg === 'string' ? rawImg.replace(/[\[\]"']/g, '').trim() : '';
+  if (cleanSrc && !cleanSrc.startsWith('/')) {
+      cleanSrc = '/' + cleanSrc;
+  }
+  return cleanSrc;
+};
+
+export default function ExamEngine({ 
+  initialTestData, 
+  initialTimeInSeconds = 1200, 
+  initialTimeLeft,
+  initialCurrentIndex = 0,
+  isReviewMode = false,
+  isSequential = false,
+  pastUserAnswers = {},
+  pastTimeSpent = {},
+  resumeExamId,
+  onExit
+}: ExamEngineProps) {
+  const router = useRouter();
+
+  const [testData] = useState<Question[]>(initialTestData);
+  const [currentIndex, setCurrentIndex] = useState(initialCurrentIndex);
+  const [userAnswers, setUserAnswers] = useState<Record<string, string>>(pastUserAnswers);
+  const [timeSpent, setTimeSpent] = useState<Record<string, number>>(pastTimeSpent);
+  const [sessionChats, setSessionChats] = useState<Record<string, Message[]>>({});
+  const [showAITutor, setShowAITutor] = useState(false);
+  
+  // Timer States
+  const [timeLeft, setTimeLeft] = useState(initialTimeLeft ?? initialTimeInSeconds);
+  const [timeElapsed, setTimeElapsed] = useState(() => Object.values(pastTimeSpent).reduce((a, b) => a + b, 0));
+  
+  const [isSubmitted, setIsSubmitted] = useState(isReviewMode);
+  const [showExitModal, setShowExitModal] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [markedForReview, setMarkedForReview] = useState<Set<number>>(new Set());
+  const [revealedSolutions, setRevealedSolutions] = useState<Set<string>>(() => {
+    // If we are resuming, auto-reveal the solutions for everything previously answered
+    return new Set(Object.keys(pastUserAnswers));
+  });
+  // NEW: Track answers that have been locked in during sequential mode
+  const [committedAnswers, setCommittedAnswers] = useState<Set<string>>(() => {
+    return new Set(Object.keys(pastUserAnswers));
+  });
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [leftWidth, setLeftWidth] = useState(80); 
+  const [isDragging, setIsDragging] = useState(false);
+
+  // ==========================================
+  // Global Scroll Lock
+  // ==========================================
+  useEffect(() => {
+    document.documentElement.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.documentElement.style.overflow = '';
+      document.body.style.overflow = '';
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging || !containerRef.current) return;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const newLeftWidth = ((e.clientX - containerRect.left) / containerRect.width) * 100;
+      if (newLeftWidth > 20 && newLeftWidth < 80) {
+        setLeftWidth(newLeftWidth);
+      }
+    };
+    const handleMouseUp = () => setIsDragging(false);
+
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    } else {
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = 'auto';
+    }
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  const currentQuestion = testData[currentIndex];
+  const currentQuestionId = testData[currentIndex]?.id;
+  const isCurrentlyRevealed = revealedSolutions.has(currentQuestion.id);
+
+  // DYNAMIC REVIEW FLAG: True if global submit OR if this specific question is committed in sequential mode
+  const isCurrentCommitted = committedAnswers.has(currentQuestion.id);
+  const isQuestionInReview = isSubmitted || (isSequential && isCurrentCommitted);
+
+  // ==========================================
+  // Timer Hook (Dual Mode: Countdown vs Stopwatch)
+  // ==========================================
+  useEffect(() => {
+    if (isSubmitted || showExitModal) return; 
+    
+    // Only auto-submit on timeout if it's a standard countdown test
+    if (!isSequential && timeLeft <= 0) {
+      submitExam();
+      return;
+    }
+
+    const timer = setInterval(() => {
+      if (isSequential) {
+        setTimeElapsed((prev) => prev + 1); // Count Up
+      } else {
+        setTimeLeft((prev) => prev - 1);    // Count Down
+      }
+      
+      setTimeSpent((prev) => ({
+        ...prev,
+        [currentQuestion.id]: (prev[currentQuestion.id] || 0) + 1
+      }));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [timeLeft, isSubmitted, currentQuestion.id, showExitModal, isSequential]);
+
+  // ==========================================
+  // Continuous Background Auto-Save
+  // ==========================================
+  useEffect(() => {
+    if (isSubmitted || !testData || testData.length === 0) return;
+    
+    const autoSaveData = {
+      id: resumeExamId || `AUTOSAVE_${Date.now()}`,
+      status: 'autosaved',
+      testData,
+      userAnswers,
+      timeSpent,
+      timeLeft,
+      currentIndex,
+      initialTimeInSeconds,
+      isSequential, 
+      timestamp: new Date().toISOString()
+    };
+    localStorage.setItem('cat_autosaved_test', JSON.stringify(autoSaveData));
+  }, [userAnswers, timeSpent, timeLeft, currentIndex, isSubmitted, testData, resumeExamId, initialTimeInSeconds, isSequential]);
+
+  // ==========================================
+  // Navigation Safeguards
+  // ==========================================
+  useEffect(() => {
+    if (isSubmitted) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault(); e.returnValue = "You have an active exam. Progress will be lost."; 
+    };
+    window.history.pushState(null, "", window.location.href);
+    const handlePopState = () => { window.history.pushState(null, "", window.location.href); setShowExitModal(true); };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('popstate', handlePopState);
+    return () => { window.removeEventListener('beforeunload', handleBeforeUnload); window.removeEventListener('popstate', handlePopState); };
+  }, [isSubmitted]);
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const handleCopyJson = () => {
+    const currentQuestion = testData[currentIndex];
+    navigator.clipboard.writeText(JSON.stringify(currentQuestion, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleOptionSelect = (optionKey: string) => {
+    if (isQuestionInReview) return; // Prevent edits if under review
+    setUserAnswers({ ...userAnswers, [currentQuestion.id]: optionKey });
+  };
+
+  const handleTITAInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isQuestionInReview) return; // Prevent edits if under review
+    setUserAnswers({ ...userAnswers, [currentQuestion.id]: e.target.value });
+  };
+
+  const submitExam = () => {
+    setShowExitModal(false);
+    localStorage.removeItem('cat_autosaved_test');
+    
+    let history = JSON.parse(localStorage.getItem('cat_exam_history') || '[]');
+    
+    if (resumeExamId) {
+      history = history.filter((h: any) => h.id !== resumeExamId);
+    }
+
+    const newExamRecord = {
+      id: `EXAM_${Date.now()}`,
+      date: new Date().toISOString(),
+      status: 'completed',
+      testData,
+      userAnswers,
+      timeSpent, 
+      totalTimeTaken: isSequential ? timeElapsed : initialTimeInSeconds - timeLeft
+    };
+    
+    localStorage.setItem('cat_exam_history', JSON.stringify([newExamRecord, ...history]));
+    
+    if (onExit) onExit();
+    else router.push('/history');
+  };
+
+  const generateAutoName = () => {
+    if (!testData || testData.length === 0) return `Session_${Date.now()}`;
+    const subject = testData[0].subject || "Mixed";
+    let topic = testData[0].topic ? testData[0].topic.split(' ')[0] : "Practice";
+    topic = topic.replace(/[^a-zA-Z0-9]/g, '');
+
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mins = String(now.getMinutes()).padStart(2, '0');
+    
+    return `${subject}_${topic}_${dd}${mm}${hh}${mins}`;
+  };
+
+  const saveAndPauseExam = () => {
+    let history = JSON.parse(localStorage.getItem('cat_exam_history') || '[]');
+    
+    const existingEntry = history.find((h: any) => h.id === resumeExamId);
+    const examName = existingEntry?.name || generateAutoName();
+
+    const newEntry = {
+      id: resumeExamId && !resumeExamId.startsWith('AUTOSAVE_') ? resumeExamId : `PAUSED_${Date.now()}`,
+      name: examName,
+      date: new Date().toISOString(),
+      status: 'paused',
+      testData,
+      userAnswers,
+      timeSpent,
+      timeLeft,
+      currentIndex,
+      initialTimeInSeconds,
+      isSequential, 
+      totalTimeTaken: isSequential ? timeElapsed : initialTimeInSeconds - timeLeft
+    };
+
+    const existingIndex = history.findIndex((h: any) => h.id === newEntry.id);
+    if (existingIndex >= 0) {
+      history[existingIndex] = newEntry; 
+    } else {
+      history.unshift(newEntry);
+    }
+
+    localStorage.setItem('cat_exam_history', JSON.stringify(history));
+    localStorage.removeItem('cat_autosaved_test');
+    
+    setShowExitModal(false);
+
+    if (onExit) onExit();
+    else window.location.href = '/history';
+  };
+
+  const getPaletteColor = (index: number) => {
+    const q = testData[index];
+    const isQReview = isSubmitted || (isSequential && committedAnswers.has(q.id));
+    const isAnswered = !!userAnswers[q.id];
+
+    if (isQReview) {
+      const ans = userAnswers[q.id];
+      const isViewing = index === currentIndex ? "ring-2 ring-blue-600 ring-offset-2 " : "";
+      if (!ans) return isViewing + "bg-gray-200 text-gray-500 border-gray-300"; 
+      if (ans === q.correct_answer) return isViewing + "bg-green-100 text-green-800 border-green-500"; 
+      return isViewing + "bg-red-100 text-red-800 border-red-500"; 
+    } else {
+      // Draft/Active Mode Colors
+      const isMarked = markedForReview.has(index);
+      if (isMarked && isAnswered) return "bg-purple-600 text-white border-purple-600";
+      if (isMarked) return "bg-purple-100 text-purple-800 border-purple-400";
+      if (isAnswered) return "bg-blue-500 text-white border-blue-500"; // Blue indicates draft
+      if (index === currentIndex) return "border-blue-600 text-blue-600 bg-blue-50";
+      return "bg-white text-gray-700 border-gray-300";
+    }
+  };
+
+  const parseSources = (sourcesStr?: OriginalSource[] | string): OriginalSource[] => {
+    if (!sourcesStr) return [];
+    if (Array.isArray(sourcesStr)) return sourcesStr;
+    try { 
+      const parsed = JSON.parse(sourcesStr);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { 
+      return []; 
+    }
+  };
+
+  // ==========================================
+  // Strict Sequential Guard Logic
+  // ==========================================
+  let maxUnlockedIndex = testData.length - 1;
+  if (isSequential && !isSubmitted) {
+    const firstUncommitted = testData.findIndex(q => !committedAnswers.has(q.id));
+    if (firstUncommitted !== -1) {
+      maxUnlockedIndex = firstUncommitted;
+    }
+  }
+
+  const canProceed = !isSequential || isSubmitted || isCurrentCommitted;
+
+  return (
+    <>
+      <div className="fixed inset-0 z-50 bg-gray-50 flex flex-col h-[100dvh] w-full overflow-hidden">
+        {/* HEADER */}
+        <div className={`bg-white border-b shadow-sm px-6 py-3 flex justify-between items-center shrink-0 ${isSubmitted ? 'border-b-4 border-b-indigo-500' : ''}`}>
+          <span className="font-bold text-gray-700 flex items-center gap-2">
+            {isSubmitted && <span className="bg-indigo-600 text-white text-xs px-2 py-1 rounded tracking-wide">REVIEW MODE</span>}
+            {!isSubmitted && isSequential && <span className="bg-emerald-600 text-white text-xs px-2 py-1 rounded tracking-wide font-bold">SEQUENTIAL TRAINING</span>}
+            <span className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
+              CAT Practice Interface
+            </span>
+          </span>
+          {!isSubmitted ? (
+            <div className="flex items-center gap-3 sm:gap-6">
+              <div className={`text-xl font-mono font-bold flex items-center gap-2 px-3 py-1.5 rounded-lg border ${isSequential ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-blue-700 bg-blue-50 border-blue-100'}`}>
+                 {/* Stopwatch icon for sequential, countdown clock for standard */}
+                 {isSequential ? (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0zM12 2v2m0 16v2m8-10h2M2 12H4m15.364-7.364l1.414-1.414M4.222 19.778l1.414-1.414m14.142 0l-1.414-1.414M4.222 4.222l1.414 1.414" /></svg>
+                 ) : (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                 )}
+                 {isSequential ? formatTime(timeElapsed) : formatTime(timeLeft)}
+              </div>
+              
+              <button 
+                onClick={() => setShowExitModal(true)} 
+                className="bg-red-50 text-red-700 border border-red-200 px-4 py-2 sm:px-5 sm:py-2.5 rounded-lg font-bold hover:bg-red-700 hover:text-white transition-colors shadow-sm flex items-center gap-2 group"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                <span className="hidden sm:inline">End Test</span>
+                <span className="sm:hidden">End</span>
+              </button>
+            </div>
+          ) : (
+              <button 
+                type="button" 
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (onExit) onExit(); else window.location.href = '/history'; 
+                }} 
+                className="bg-gray-800 text-white px-4 py-2 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+                Exit Review
+              </button>
+          )}
+        </div>
+        
+        {/* WORKSPACE with NATIVE RESIZER */}
+        <div className="flex flex-1 overflow-hidden" ref={containerRef}>
+          
+          {/* LEFT PANE */}
+          <div 
+            className="bg-white flex flex-col h-full relative" 
+            style={{ flexBasis: `${leftWidth}%`, flexGrow: 1, flexShrink: 1, minWidth: '30%' }}
+          >
+            {/* FIXED TOOLBAR */}
+            <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-100 shadow-sm z-10 shrink-0">
+                <span className="text-sm font-bold text-gray-500 uppercase tracking-widest">
+                  Question {currentIndex + 1} <span className="lowercase text-gray-400 text-xs font-medium">of {testData.length}</span>
+                </span>
+                
+                <div className="flex items-center gap-3">
+                  {!isQuestionInReview && (
+                    <div className="flex items-center gap-1 border-r border-gray-200 pr-3 mr-1">
+                      <button onClick={() => {
+                          const updated = new Set(markedForReview);
+                          updated.has(currentIndex) ? updated.delete(currentIndex) : updated.add(currentIndex);
+                          setMarkedForReview(updated);
+                      }} title="Mark for Review" className={`p-2 rounded-md transition-colors flex items-center gap-1 ${markedForReview.has(currentIndex) ? 'bg-purple-100 text-purple-700' : 'hover:bg-gray-100 text-gray-500'}`}>
+                        <Bookmark size={16} className={markedForReview.has(currentIndex) ? 'fill-current' : ''} />
+                      </button>
+                      <button onClick={() => {
+                          const updated = { ...userAnswers };
+                          delete updated[currentQuestion.id];
+                          setUserAnswers(updated);
+                      }} title="Clear Answer" className="p-2 hover:bg-gray-100 text-gray-500 rounded-md transition-colors">
+                        <Eraser size={16} />
+                      </button>
+                    </div>
+                  )}
+                  
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setCurrentIndex(prev => Math.max(0, prev - 1))} disabled={currentIndex === 0} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold rounded-lg disabled:opacity-40 transition-colors flex items-center gap-1">
+                      <ChevronLeft size={16} /> Prev
+                    </button>
+
+                    {/* SEQUENTIAL CHECK / NEXT BUTTON */}
+                    {isSequential && !isSubmitted && !isCurrentCommitted ? (
+                      <button 
+                        onClick={() => {
+                          setCommittedAnswers(prev => new Set(prev).add(currentQuestion.id));
+                          setRevealedSolutions(prev => new Set(prev).add(currentQuestion.id));
+                        }} 
+                        disabled={!userAnswers[currentQuestion.id]} 
+                        className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm ${
+                          !userAnswers[currentQuestion.id]
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        }`}
+                      >
+                        Check Answer <CheckCircle size={16} />
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => setCurrentIndex(prev => Math.min(testData.length - 1, prev + 1))} 
+                        disabled={currentIndex === testData.length - 1 || (!canProceed)} 
+                        className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm ${
+                          (!canProceed && currentIndex !== testData.length - 1)
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                            : 'bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40'
+                        }`}
+                      >
+                        Next <ChevronRight size={16} />
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* UTILITY ICONS (Copy + AI Tutor Toggle - ENABLED IF IN REVIEW) */}
+                  {isQuestionInReview && (
+                    <div className="flex items-center gap-1 border-l border-gray-200 pl-3 ml-1 animate-fadeIn">
+                      <button onClick={handleCopyJson} title="Copy Question JSON" className="p-2 hover:bg-gray-100 rounded-md transition-colors">
+                          {copied ? <CheckCircle size={18} className="text-green-600" /> : <Copy size={18} className="text-gray-500" />}
+                      </button>
+                      <button 
+                        onClick={() => setShowAITutor(!showAITutor)} 
+                        title={showAITutor ? "Close AI Tutor" : "Ask AI Tutor"} 
+                        className={`p-2 rounded-md transition-colors ${showAITutor ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-gray-100 text-gray-500'}`}
+                      >
+                          <Sparkles size={18} className={showAITutor ? 'fill-indigo-100' : ''} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+            </div>
+
+            {/* ISOLATED SCROLL CONTAINER FOR QUESTION/CONTEXT */}
+            <div className="flex-1 overflow-y-auto p-6 pb-20">
+              <div className={currentQuestion.has_parent_context ? "grid grid-cols-1 lg:grid-cols-2 gap-8 h-full" : "max-w-4xl mx-auto"}>
+                {currentQuestion.has_parent_context && currentQuestion.parent_context && (
+                  <div className="mb-6 p-6 bg-gray-50 rounded-xl border border-gray-200">
+                    <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4">Context</h3>
+                    <div className="text-lg text-gray-800 whitespace-pre-wrap">
+                      <MathRenderer content={cleanTextContent(currentQuestion.parent_context.context_body)} />
+                    </div>
+                    {currentQuestion.parent_context.context_images?.map((img, idx) => (
+                      <img key={idx} src={getValidImageSrc(img)} alt="Context" className="mt-4 max-w-full rounded-lg shadow-sm border border-gray-200" />
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex flex-col">
+                    <div className="text-lg text-gray-800 font-medium mb-6 whitespace-pre-wrap">
+                      <MathRenderer content={cleanTextContent(currentQuestion.question_text)} />
+                    </div>
+                    {currentQuestion.question_images?.map((img, idx) => (
+                      <img key={idx} src={getValidImageSrc(img)} alt="Question" className="mb-6 max-w-full rounded-lg shadow-sm border border-gray-200" />
+                    ))}
+
+                    {/* Options */}
+                    {currentQuestion.question_type === 'MCQ' && currentQuestion.options ? (
+                      <div className="space-y-3">
+                        {Object.entries(currentQuestion.options).map(([key, val]) => {
+                          if (!val) return null;
+                          
+                          let btnClass = "bg-white hover:bg-gray-50 border-gray-200";
+                          const isSelected = userAnswers[currentQuestion.id] === key;
+                          const isCorrectOption = currentQuestion.correct_answer === key;
+
+                          if (isQuestionInReview) {
+                            if (isCurrentlyRevealed) {
+                              if (isCorrectOption) btnClass = "bg-green-50 border-green-500 ring-1 ring-green-500 shadow-sm";
+                              else if (isSelected && !isCorrectOption) btnClass = "bg-red-50 border-red-400 opacity-80";
+                              else btnClass = "bg-gray-50 border-gray-200 opacity-60";
+                            } else {
+                              if (isSelected) btnClass = "bg-blue-50 border-blue-400 opacity-80";
+                              else btnClass = "bg-gray-50 border-gray-200 opacity-80";
+                            }
+                          } else if (isSelected) {
+                            btnClass = "bg-blue-50 border-blue-500 ring-1 ring-blue-500 shadow-sm";
+                          }
+
+                          return (
+                            <button key={key} onClick={() => handleOptionSelect(key)} disabled={isQuestionInReview}
+                              className={`w-full text-left p-4 border rounded-xl transition-all relative pr-24 ${btnClass} ${isQuestionInReview ? 'cursor-default' : 'cursor-pointer'}`}>
+                              
+                              <div className="flex items-start gap-3">
+                                <span className="font-bold text-gray-700 mt-[2px] min-w-[1.2rem]">{key}.</span> 
+                                <div className="flex-1 overflow-x-auto"><MathRenderer content={val} /></div>
+                              </div>
+                              
+                              {/* Option Badges */}
+                              {isQuestionInReview && isCurrentlyRevealed && isCorrectOption && (
+                                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-green-800 bg-green-200 px-2 py-1 rounded-full border border-green-300 flex items-center gap-1 shadow-sm">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg> Correct
+                                </span>
+                              )}
+                              {isQuestionInReview && isCurrentlyRevealed && isSelected && !isCorrectOption && (
+                                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-800 bg-red-200 px-2 py-1 rounded-full border border-red-300 flex items-center gap-1 shadow-sm">
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/></svg> Your Answer
+                                </span>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-4">
+                        <input type="text" value={userAnswers[currentQuestion.id] || ''} onChange={handleTITAInput} disabled={isQuestionInReview} placeholder="Type your answer here..."
+                          className={`w-full p-4 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none ${isQuestionInReview ? 'bg-gray-50 text-gray-600 border-gray-300' : 'border-gray-300'}`}/>
+                        
+                        {isQuestionInReview && isCurrentlyRevealed && (
+                          <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-xl text-green-900 text-sm font-medium flex items-center gap-2 animate-fadeIn">
+                            <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            Correct Answer: <span className="font-bold text-base">{currentQuestion.correct_answer}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* REVIEW MODE: Answer Mask / Solution Block with Toggle */}
+                    {isQuestionInReview && (
+                      <div className="mt-10 space-y-4 border-t border-gray-100 pt-6 animate-fadeIn">
+                        <button 
+                          onClick={() => {
+                            const newSet = new Set(revealedSolutions);
+                            newSet.has(currentQuestion.id) ? newSet.delete(currentQuestion.id) : newSet.add(currentQuestion.id);
+                            setRevealedSolutions(newSet);
+                          }} 
+                          className={`w-full py-4 border-2 border-dashed font-bold rounded-xl transition-colors flex items-center justify-center gap-2 ${isCurrentlyRevealed ? 'border-gray-300 text-gray-500 hover:bg-gray-50' : 'border-indigo-300 text-indigo-700 hover:bg-indigo-50'}`}
+                        >
+                          {isCurrentlyRevealed ? (
+                            <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg> Hide Answer & Solution</>
+                          ) : (
+                            <><svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.543 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> Reveal Correct Answer & Solution</>
+                          )}
+                        </button>
+
+                        {isCurrentlyRevealed && (
+                          <div className="animate-fadeIn space-y-4">
+                            <div className="p-6 bg-indigo-50/50 border border-indigo-100 rounded-xl">
+                              <h4 className="font-bold text-indigo-900 mb-4 flex items-center gap-2">
+                                <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                                Solution
+                              </h4>
+                              <div className="mt-4">
+                                <h4 className="font-bold text-gray-700 mb-2">Solution:</h4>
+                                <div className="text-gray-700 whitespace-pre-wrap">
+                                  <MathRenderer content={cleanTextContent(currentQuestion.solution_text) || "No detailed solution provided."} />
+                                </div>
+                                {currentQuestion.solution_images?.map((img, idx) => (
+                                  <img key={idx} src={getValidImageSrc(img)} alt="Solution" className="mt-4 max-w-full rounded-lg shadow-sm border border-gray-200" />
+                                ))}
+                              </div>
+                            </div>
+                            
+                            {parseSources(currentQuestion.original_sources).length > 0 && (
+                              <div className="flex flex-wrap gap-2 items-center p-4 bg-gray-50 border border-gray-200 rounded-xl">
+                                <span className="text-xs font-bold text-gray-500 uppercase tracking-wide mr-2 flex items-center gap-1">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+                                  Original Sources:
+                                </span>
+                                {parseSources(currentQuestion.original_sources).map((src: any, i: number) => (
+                                  <a key={i} href={src.link} target="_blank" rel="noreferrer" className="text-xs font-bold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1.5 rounded-full hover:bg-blue-100 transition-colors">
+                                    {src.label}
+                                  </a>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* DRAGGABLE RESIZER HANDLE */}
+          <div
+            className="w-2 bg-gray-100 hover:bg-indigo-300 border-x border-gray-200 cursor-col-resize shrink-0 flex flex-col justify-center items-center transition-colors z-20 shadow-inner"
+            onMouseDown={() => setIsDragging(true)}
+          >
+            <div className="w-0.5 h-8 bg-gray-400 rounded-full" />
+          </div>
+
+          {/* RIGHT SIDEBAR */}
+          <div 
+            className="bg-gray-50 flex flex-col shadow-[-4px_0_15px_-5px_rgba(0,0,0,0.05)] z-10" 
+            style={{ flexBasis: `${100 - leftWidth}%`, flexGrow: 1, flexShrink: 1, minWidth: '20%' }}
+          >
+             {showAITutor ? (
+                /* FULL SCREEN AI TUTOR STATE */
+                <div className="flex-1 flex flex-col h-full bg-white animate-in slide-in-from-right duration-200 overflow-hidden relative shadow-[-15px_0_30px_-15px_rgba(0,0,0,0.08)] ring-1 ring-gray-100">
+                  <AITutor
+                    questionContext={currentQuestion}
+                    chatHistory={sessionChats[currentQuestionId] || []}
+                    onUpdateHistory={(newHistory) => {
+                      setSessionChats(prev => ({
+                        ...prev,
+                        [currentQuestionId]: newHistory
+                      }));
+                    }}
+                    onClose={() => setShowAITutor(false)}
+                  />
+                </div>
+             ) : (
+                /* PALETTE & DIAGNOSTICS STATE */
+                <div className="p-5 flex-1 overflow-y-auto flex flex-col justify-between">
+                  <div>
+                      <h3 className="font-bold text-gray-700 mb-4 uppercase text-xs tracking-wider">Question Palette</h3>
+                      <div className="flex flex-wrap gap-3 mb-8">
+                          {testData.map((_, index) => {
+                            // ENFORCED PALETTE DISABLER
+                            const isPaletteDisabled = isSequential && !isSubmitted && index > maxUnlockedIndex;
+                            return (
+                              <button key={index} onClick={() => setCurrentIndex(index)}
+                                  disabled={isPaletteDisabled}
+                                  className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-sm font-bold transition-all border shadow-sm ${getPaletteColor(index)} ${isPaletteDisabled ? 'opacity-40 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' : ''}`}>
+                                  {index + 1}
+                              </button>
+                            );
+                          })}
+                      </div>
+                  </div>
+                  
+                  {isQuestionInReview && currentQuestion.metadata_hooks && (
+                    <div className="mt-8 bg-white border border-gray-200 rounded-xl p-5 shadow-sm flex flex-col gap-5 shrink-0 animate-fadeIn">
+                      <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
+                        <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                          Time Analytics
+                        </h4>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-xs font-medium text-slate-700">Time Spent on Question:</span>
+                          <span className="text-sm font-bold text-indigo-700">
+                            {formatTime(timeSpent[currentQuestion.id] || 0)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div>
+                          <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-3">Diagnostic Data</h4>
+                          <div className="space-y-3">
+                            <div className="flex justify-between items-center border-b border-gray-50 pb-2">
+                              <span className="text-[10px] text-gray-500 uppercase">Topic</span>
+                              <span className="text-xs font-semibold text-gray-800 text-right">{currentQuestion.topic}</span>
+                            </div>
+                            
+                            {currentQuestion.sub_topic && (
+                              <div className="flex justify-between items-center border-b border-gray-50 pb-2">
+                                <span className="text-[10px] text-gray-500 uppercase">Sub-Topic</span>
+                                <span className="text-xs font-semibold text-gray-800 text-right">{currentQuestion.sub_topic}</span>
+                              </div>
+                            )}
+
+                            <div className="flex justify-between items-center">
+                              <span className="text-[10px] text-gray-500 uppercase">Difficulty</span>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${currentQuestion.metadata_hooks.difficulty === 'Hard' ? 'bg-red-500' : currentQuestion.metadata_hooks.difficulty === 'Medium' ? 'bg-yellow-500' : 'bg-green-500'}`}></span>
+                                <span className="text-xs font-medium text-gray-700">
+                                  {currentQuestion.metadata_hooks.difficulty} 
+                                  {currentQuestion.metadata_hooks.difficulty_level && ` (${currentQuestion.metadata_hooks.difficulty_level})`}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+             )}
+          </div>
+        </div>
+      </div>
+
+      {/* COMBINED EXIT / PAUSE MODAL */}
+      {showExitModal && (
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+              <svg className="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              End Exam Options
+            </h2>
+            <p className="text-sm text-gray-500 mb-6">
+              Choose how you want to proceed. You can submit to see your results, pause to continue later, or discard this session entirely.
+            </p>
+            
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={submitExam} 
+                className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2 transition-colors"
+              >
+                <CheckCircle size={18} /> Submit & View Results
+              </button>
+              
+              <button 
+                onClick={saveAndPauseExam} 
+                className="w-full py-3.5 bg-amber-50 text-amber-700 border border-amber-200 rounded-xl font-bold hover:bg-amber-100 shadow-sm transition-colors flex items-center justify-center gap-2"
+              >
+                 <Bookmark size={18} /> Pause & Save for Later
+              </button>
+
+              <div className="flex gap-3 mt-3">
+                <button 
+                  onClick={() => setShowExitModal(false)} 
+                  className="flex-1 py-3 border border-gray-300 rounded-xl font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                
+                <button 
+                  onClick={() => {
+                    setShowExitModal(false);
+                    localStorage.removeItem('cat_autosaved_test');
+                    if (onExit) onExit();
+                    else router.push('/'); 
+                  }} 
+                  className="flex-1 py-3 text-red-600 border border-red-200 bg-red-50 hover:bg-red-100 rounded-xl font-semibold transition-colors"
+                >
+                  Discard Test
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
