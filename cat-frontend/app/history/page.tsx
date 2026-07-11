@@ -15,6 +15,7 @@ interface ExamRecord {
   totalTimeTaken: number;
   timeLeft?: number;
   currentIndex?: number;
+  isSequential?: boolean;
   initialTimeInSeconds?: number;
 }
 
@@ -76,6 +77,7 @@ export default function HistoryPage() {
         initialTimeLeft={resumingExam.timeLeft}
         initialCurrentIndex={resumingExam.currentIndex}
         resumeExamId={resumingExam.id}
+        isSequential={resumingExam.isSequential}
         onExit={() => {
           setResumingExam(null);
           // Refresh lists to capture changes upon exit
@@ -93,6 +95,7 @@ export default function HistoryPage() {
         isReviewMode={true} // Post-Completion Mode!
         pastUserAnswers={selectedExam.userAnswers}
         pastTimeSpent={selectedExam.timeSpent}
+        isSequential={selectedExam.isSequential}
         onExit={() => setSelectedExam(null)}
       />
     );

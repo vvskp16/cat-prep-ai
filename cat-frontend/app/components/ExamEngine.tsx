@@ -27,6 +27,7 @@ interface ExamEngineProps {
   initialTimeLeft?: number;
   initialCurrentIndex?: number;
   isReviewMode?: boolean;
+  isSequential?: boolean; // Sequential Prop
   pastUserAnswers?: Record<string, string>;
   pastTimeSpent?: Record<string, number>; 
   resumeExamId?: string;
@@ -52,6 +53,7 @@ export default function ExamEngine({
   initialTimeLeft,
   initialCurrentIndex = 0,
   isReviewMode = false,
+  isSequential = false,
   pastUserAnswers = {},
   pastTimeSpent = {},
   resumeExamId,
@@ -65,13 +67,23 @@ export default function ExamEngine({
   const [timeSpent, setTimeSpent] = useState<Record<string, number>>(pastTimeSpent);
   const [sessionChats, setSessionChats] = useState<Record<string, Message[]>>({});
   const [showAITutor, setShowAITutor] = useState(false);
+  
+  // Timer States
   const [timeLeft, setTimeLeft] = useState(initialTimeLeft ?? initialTimeInSeconds);
+  const [timeElapsed, setTimeElapsed] = useState(() => Object.values(pastTimeSpent).reduce((a, b) => a + b, 0));
   
   const [isSubmitted, setIsSubmitted] = useState(isReviewMode);
   const [showExitModal, setShowExitModal] = useState(false);
   const [copied, setCopied] = useState(false);
   const [markedForReview, setMarkedForReview] = useState<Set<number>>(new Set());
-  const [revealedSolutions, setRevealedSolutions] = useState<Set<string>>(new Set());
+  const [revealedSolutions, setRevealedSolutions] = useState<Set<string>>(() => {
+    // If we are resuming, auto-reveal the solutions for everything previously answered
+    return new Set(Object.keys(pastUserAnswers));
+  });
+  // NEW: Track answers that have been locked in during sequential mode
+  const [committedAnswers, setCommittedAnswers] = useState<Set<string>>(() => {
+    return new Set(Object.keys(pastUserAnswers));
+  });
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [leftWidth, setLeftWidth] = useState(80); 
@@ -119,25 +131,36 @@ export default function ExamEngine({
   const currentQuestionId = testData[currentIndex]?.id;
   const isCurrentlyRevealed = revealedSolutions.has(currentQuestion.id);
 
+  // DYNAMIC REVIEW FLAG: True if global submit OR if this specific question is committed in sequential mode
+  const isCurrentCommitted = committedAnswers.has(currentQuestion.id);
+  const isQuestionInReview = isSubmitted || (isSequential && isCurrentCommitted);
+
   // ==========================================
-  // Timer Hook
+  // Timer Hook (Dual Mode: Countdown vs Stopwatch)
   // ==========================================
   useEffect(() => {
-    if (isSubmitted || timeLeft <= 0) {
-      if (timeLeft <= 0 && !isSubmitted) submitExam();
+    if (isSubmitted || showExitModal) return; 
+    
+    // Only auto-submit on timeout if it's a standard countdown test
+    if (!isSequential && timeLeft <= 0) {
+      submitExam();
       return;
     }
-    if (showExitModal) return; // Pause timer when modal is active
 
     const timer = setInterval(() => {
-      setTimeLeft((prev) => prev - 1);
+      if (isSequential) {
+        setTimeElapsed((prev) => prev + 1); // Count Up
+      } else {
+        setTimeLeft((prev) => prev - 1);    // Count Down
+      }
+      
       setTimeSpent((prev) => ({
         ...prev,
         [currentQuestion.id]: (prev[currentQuestion.id] || 0) + 1
       }));
     }, 1000);
     return () => clearInterval(timer);
-  }, [timeLeft, isSubmitted, currentQuestion.id, showExitModal]);
+  }, [timeLeft, isSubmitted, currentQuestion.id, showExitModal, isSequential]);
 
   // ==========================================
   // Continuous Background Auto-Save
@@ -154,10 +177,11 @@ export default function ExamEngine({
       timeLeft,
       currentIndex,
       initialTimeInSeconds,
+      isSequential, 
       timestamp: new Date().toISOString()
     };
     localStorage.setItem('cat_autosaved_test', JSON.stringify(autoSaveData));
-  }, [userAnswers, timeSpent, timeLeft, currentIndex, isSubmitted, testData, resumeExamId, initialTimeInSeconds]);
+  }, [userAnswers, timeSpent, timeLeft, currentIndex, isSubmitted, testData, resumeExamId, initialTimeInSeconds, isSequential]);
 
   // ==========================================
   // Navigation Safeguards
@@ -188,12 +212,12 @@ export default function ExamEngine({
   };
 
   const handleOptionSelect = (optionKey: string) => {
-    if (isSubmitted) return; 
+    if (isQuestionInReview) return; // Prevent edits if under review
     setUserAnswers({ ...userAnswers, [currentQuestion.id]: optionKey });
   };
 
   const handleTITAInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (isSubmitted) return;
+    if (isQuestionInReview) return; // Prevent edits if under review
     setUserAnswers({ ...userAnswers, [currentQuestion.id]: e.target.value });
   };
 
@@ -203,7 +227,6 @@ export default function ExamEngine({
     
     let history = JSON.parse(localStorage.getItem('cat_exam_history') || '[]');
     
-    // Remove original paused record if we are finalizing it
     if (resumeExamId) {
       history = history.filter((h: any) => h.id !== resumeExamId);
     }
@@ -215,7 +238,7 @@ export default function ExamEngine({
       testData,
       userAnswers,
       timeSpent, 
-      totalTimeTaken: initialTimeInSeconds - timeLeft
+      totalTimeTaken: isSequential ? timeElapsed : initialTimeInSeconds - timeLeft
     };
     
     localStorage.setItem('cat_exam_history', JSON.stringify([newExamRecord, ...history]));
@@ -224,11 +247,9 @@ export default function ExamEngine({
     else router.push('/history');
   };
 
-  // Helper to generate a clean string like Quant_Arithmetic_12071430
   const generateAutoName = () => {
     if (!testData || testData.length === 0) return `Session_${Date.now()}`;
     const subject = testData[0].subject || "Mixed";
-    // Grab first word of topic and clean non-alphanumeric chars
     let topic = testData[0].topic ? testData[0].topic.split(' ')[0] : "Practice";
     topic = topic.replace(/[^a-zA-Z0-9]/g, '');
 
@@ -258,7 +279,8 @@ export default function ExamEngine({
       timeLeft,
       currentIndex,
       initialTimeInSeconds,
-      totalTimeTaken: initialTimeInSeconds - timeLeft
+      isSequential, 
+      totalTimeTaken: isSequential ? timeElapsed : initialTimeInSeconds - timeLeft
     };
 
     const existingIndex = history.findIndex((h: any) => h.id === newEntry.id);
@@ -278,21 +300,24 @@ export default function ExamEngine({
   };
 
   const getPaletteColor = (index: number) => {
-    if (!isSubmitted) {
-      const isAnswered = !!userAnswers[testData[index].id];
-      const isMarked = markedForReview.has(index);
-      if (isMarked && isAnswered) return "bg-purple-600 text-white border-purple-600";
-      if (isMarked) return "bg-purple-100 text-purple-800 border-purple-400";
-      if (isAnswered) return "bg-green-600 text-white border-green-600";
-      if (index === currentIndex) return "border-blue-600 text-blue-600 bg-blue-50";
-      return "bg-white text-gray-700 border-gray-300";
-    } else {
-      const q = testData[index];
+    const q = testData[index];
+    const isQReview = isSubmitted || (isSequential && committedAnswers.has(q.id));
+    const isAnswered = !!userAnswers[q.id];
+
+    if (isQReview) {
       const ans = userAnswers[q.id];
       const isViewing = index === currentIndex ? "ring-2 ring-blue-600 ring-offset-2 " : "";
       if (!ans) return isViewing + "bg-gray-200 text-gray-500 border-gray-300"; 
       if (ans === q.correct_answer) return isViewing + "bg-green-100 text-green-800 border-green-500"; 
       return isViewing + "bg-red-100 text-red-800 border-red-500"; 
+    } else {
+      // Draft/Active Mode Colors
+      const isMarked = markedForReview.has(index);
+      if (isMarked && isAnswered) return "bg-purple-600 text-white border-purple-600";
+      if (isMarked) return "bg-purple-100 text-purple-800 border-purple-400";
+      if (isAnswered) return "bg-blue-500 text-white border-blue-500"; // Blue indicates draft
+      if (index === currentIndex) return "border-blue-600 text-blue-600 bg-blue-50";
+      return "bg-white text-gray-700 border-gray-300";
     }
   };
 
@@ -307,6 +332,19 @@ export default function ExamEngine({
     }
   };
 
+  // ==========================================
+  // Strict Sequential Guard Logic
+  // ==========================================
+  let maxUnlockedIndex = testData.length - 1;
+  if (isSequential && !isSubmitted) {
+    const firstUncommitted = testData.findIndex(q => !committedAnswers.has(q.id));
+    if (firstUncommitted !== -1) {
+      maxUnlockedIndex = firstUncommitted;
+    }
+  }
+
+  const canProceed = !isSequential || isSubmitted || isCurrentCommitted;
+
   return (
     <>
       <div className="fixed inset-0 z-50 bg-gray-50 flex flex-col h-[100dvh] w-full overflow-hidden">
@@ -314,6 +352,7 @@ export default function ExamEngine({
         <div className={`bg-white border-b shadow-sm px-6 py-3 flex justify-between items-center shrink-0 ${isSubmitted ? 'border-b-4 border-b-indigo-500' : ''}`}>
           <span className="font-bold text-gray-700 flex items-center gap-2">
             {isSubmitted && <span className="bg-indigo-600 text-white text-xs px-2 py-1 rounded tracking-wide">REVIEW MODE</span>}
+            {!isSubmitted && isSequential && <span className="bg-emerald-600 text-white text-xs px-2 py-1 rounded tracking-wide font-bold">SEQUENTIAL TRAINING</span>}
             <span className="flex items-center gap-2">
               <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" /></svg>
               CAT Practice Interface
@@ -321,9 +360,14 @@ export default function ExamEngine({
           </span>
           {!isSubmitted ? (
             <div className="flex items-center gap-3 sm:gap-6">
-              <div className="text-xl font-mono text-blue-700 font-bold flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-100">
-                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                 {formatTime(timeLeft)}
+              <div className={`text-xl font-mono font-bold flex items-center gap-2 px-3 py-1.5 rounded-lg border ${isSequential ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-blue-700 bg-blue-50 border-blue-100'}`}>
+                 {/* Stopwatch icon for sequential, countdown clock for standard */}
+                 {isSequential ? (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0zM12 2v2m0 16v2m8-10h2M2 12H4m15.364-7.364l1.414-1.414M4.222 19.778l1.414-1.414m14.142 0l-1.414-1.414M4.222 4.222l1.414 1.414" /></svg>
+                 ) : (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                 )}
+                 {isSequential ? formatTime(timeElapsed) : formatTime(timeLeft)}
               </div>
               
               <button 
@@ -365,7 +409,7 @@ export default function ExamEngine({
                 </span>
                 
                 <div className="flex items-center gap-3">
-                  {!isSubmitted && (
+                  {!isQuestionInReview && (
                     <div className="flex items-center gap-1 border-r border-gray-200 pr-3 mr-1">
                       <button onClick={() => {
                           const updated = new Set(markedForReview);
@@ -388,14 +432,41 @@ export default function ExamEngine({
                     <button onClick={() => setCurrentIndex(prev => Math.max(0, prev - 1))} disabled={currentIndex === 0} className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-bold rounded-lg disabled:opacity-40 transition-colors flex items-center gap-1">
                       <ChevronLeft size={16} /> Prev
                     </button>
-                    <button onClick={() => setCurrentIndex(prev => Math.min(testData.length - 1, prev + 1))} disabled={currentIndex === testData.length - 1} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold rounded-lg disabled:opacity-40 transition-colors flex items-center gap-1 shadow-sm">
-                      Next <ChevronRight size={16} />
-                    </button>
+
+                    {/* SEQUENTIAL CHECK / NEXT BUTTON */}
+                    {isSequential && !isSubmitted && !isCurrentCommitted ? (
+                      <button 
+                        onClick={() => {
+                          setCommittedAnswers(prev => new Set(prev).add(currentQuestion.id));
+                          setRevealedSolutions(prev => new Set(prev).add(currentQuestion.id));
+                        }} 
+                        disabled={!userAnswers[currentQuestion.id]} 
+                        className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm ${
+                          !userAnswers[currentQuestion.id]
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        }`}
+                      >
+                        Check Answer <CheckCircle size={16} />
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => setCurrentIndex(prev => Math.min(testData.length - 1, prev + 1))} 
+                        disabled={currentIndex === testData.length - 1 || (!canProceed)} 
+                        className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors flex items-center gap-1 shadow-sm ${
+                          (!canProceed && currentIndex !== testData.length - 1)
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                            : 'bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40'
+                        }`}
+                      >
+                        Next <ChevronRight size={16} />
+                      </button>
+                    )}
                   </div>
                   
-                  {/* UTILITY ICONS (Copy + AI Tutor Toggle - ONLY IN REVIEW MODE) */}
-                  {isSubmitted && (
-                    <div className="flex items-center gap-1 border-l border-gray-200 pl-3 ml-1">
+                  {/* UTILITY ICONS (Copy + AI Tutor Toggle - ENABLED IF IN REVIEW) */}
+                  {isQuestionInReview && (
+                    <div className="flex items-center gap-1 border-l border-gray-200 pl-3 ml-1 animate-fadeIn">
                       <button onClick={handleCopyJson} title="Copy Question JSON" className="p-2 hover:bg-gray-100 rounded-md transition-colors">
                           {copied ? <CheckCircle size={18} className="text-green-600" /> : <Copy size={18} className="text-gray-500" />}
                       </button>
@@ -444,7 +515,7 @@ export default function ExamEngine({
                           const isSelected = userAnswers[currentQuestion.id] === key;
                           const isCorrectOption = currentQuestion.correct_answer === key;
 
-                          if (isSubmitted) {
+                          if (isQuestionInReview) {
                             if (isCurrentlyRevealed) {
                               if (isCorrectOption) btnClass = "bg-green-50 border-green-500 ring-1 ring-green-500 shadow-sm";
                               else if (isSelected && !isCorrectOption) btnClass = "bg-red-50 border-red-400 opacity-80";
@@ -454,12 +525,12 @@ export default function ExamEngine({
                               else btnClass = "bg-gray-50 border-gray-200 opacity-80";
                             }
                           } else if (isSelected) {
-                            btnClass = "bg-blue-50 border-blue-600 ring-1 ring-blue-600 shadow-sm";
+                            btnClass = "bg-blue-50 border-blue-500 ring-1 ring-blue-500 shadow-sm";
                           }
 
                           return (
-                            <button key={key} onClick={() => handleOptionSelect(key)} disabled={isSubmitted}
-                              className={`w-full text-left p-4 border rounded-xl transition-all relative pr-24 ${btnClass} ${isSubmitted ? 'cursor-default' : 'cursor-pointer'}`}>
+                            <button key={key} onClick={() => handleOptionSelect(key)} disabled={isQuestionInReview}
+                              className={`w-full text-left p-4 border rounded-xl transition-all relative pr-24 ${btnClass} ${isQuestionInReview ? 'cursor-default' : 'cursor-pointer'}`}>
                               
                               <div className="flex items-start gap-3">
                                 <span className="font-bold text-gray-700 mt-[2px] min-w-[1.2rem]">{key}.</span> 
@@ -467,12 +538,12 @@ export default function ExamEngine({
                               </div>
                               
                               {/* Option Badges */}
-                              {isSubmitted && isCurrentlyRevealed && isCorrectOption && (
+                              {isQuestionInReview && isCurrentlyRevealed && isCorrectOption && (
                                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-green-800 bg-green-200 px-2 py-1 rounded-full border border-green-300 flex items-center gap-1 shadow-sm">
                                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7"/></svg> Correct
                                 </span>
                               )}
-                              {isSubmitted && isCurrentlyRevealed && isSelected && !isCorrectOption && (
+                              {isQuestionInReview && isCurrentlyRevealed && isSelected && !isCorrectOption && (
                                 <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-bold text-red-800 bg-red-200 px-2 py-1 rounded-full border border-red-300 flex items-center gap-1 shadow-sm">
                                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12"/></svg> Your Answer
                                 </span>
@@ -483,10 +554,10 @@ export default function ExamEngine({
                       </div>
                     ) : (
                       <div className="mt-4">
-                        <input type="text" value={userAnswers[currentQuestion.id] || ''} onChange={handleTITAInput} disabled={isSubmitted} placeholder="Type your answer here..."
-                          className={`w-full p-4 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none ${isSubmitted ? 'bg-gray-50 text-gray-600 border-gray-300' : 'border-gray-300'}`}/>
+                        <input type="text" value={userAnswers[currentQuestion.id] || ''} onChange={handleTITAInput} disabled={isQuestionInReview} placeholder="Type your answer here..."
+                          className={`w-full p-4 border rounded-xl focus:ring-2 focus:ring-blue-500 outline-none ${isQuestionInReview ? 'bg-gray-50 text-gray-600 border-gray-300' : 'border-gray-300'}`}/>
                         
-                        {isSubmitted && isCurrentlyRevealed && (
+                        {isQuestionInReview && isCurrentlyRevealed && (
                           <div className="mt-3 p-4 bg-green-50 border border-green-200 rounded-xl text-green-900 text-sm font-medium flex items-center gap-2 animate-fadeIn">
                             <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             Correct Answer: <span className="font-bold text-base">{currentQuestion.correct_answer}</span>
@@ -496,8 +567,8 @@ export default function ExamEngine({
                     )}
 
                     {/* REVIEW MODE: Answer Mask / Solution Block with Toggle */}
-                    {isSubmitted && (
-                      <div className="mt-10 space-y-4 border-t border-gray-100 pt-6">
+                    {isQuestionInReview && (
+                      <div className="mt-10 space-y-4 border-t border-gray-100 pt-6 animate-fadeIn">
                         <button 
                           onClick={() => {
                             const newSet = new Set(revealedSolutions);
@@ -587,17 +658,22 @@ export default function ExamEngine({
                   <div>
                       <h3 className="font-bold text-gray-700 mb-4 uppercase text-xs tracking-wider">Question Palette</h3>
                       <div className="flex flex-wrap gap-3 mb-8">
-                          {testData.map((_, index) => (
-                            <button key={index} onClick={() => setCurrentIndex(index)}
-                                className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-sm font-bold transition-all border shadow-sm ${getPaletteColor(index)}`}>
-                                {index + 1}
-                            </button>
-                          ))}
+                          {testData.map((_, index) => {
+                            // ENFORCED PALETTE DISABLER
+                            const isPaletteDisabled = isSequential && !isSubmitted && index > maxUnlockedIndex;
+                            return (
+                              <button key={index} onClick={() => setCurrentIndex(index)}
+                                  disabled={isPaletteDisabled}
+                                  className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-sm font-bold transition-all border shadow-sm ${getPaletteColor(index)} ${isPaletteDisabled ? 'opacity-40 cursor-not-allowed bg-gray-100 text-gray-400 border-gray-200' : ''}`}>
+                                  {index + 1}
+                              </button>
+                            );
+                          })}
                       </div>
                   </div>
                   
-                  {isSubmitted && currentQuestion.metadata_hooks && (
-                    <div className="mt-8 bg-white border border-gray-200 rounded-xl p-5 shadow-sm flex flex-col gap-5 shrink-0">
+                  {isQuestionInReview && currentQuestion.metadata_hooks && (
+                    <div className="mt-8 bg-white border border-gray-200 rounded-xl p-5 shadow-sm flex flex-col gap-5 shrink-0 animate-fadeIn">
                       <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg">
                         <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1">
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>

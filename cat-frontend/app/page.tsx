@@ -34,6 +34,7 @@ type TestConfig = {
   selectedTopics: string[];
   selectedSubTopics: string[];
   selectedTrap: string;
+  isSequential: boolean; // New Sequential property
 };
 
 export default function EnhancedTestGenerator() {
@@ -54,6 +55,7 @@ export default function EnhancedTestGenerator() {
   const [selectedSubTopics, setSelectedSubTopics] = useState<string[]>([]);
   const [selectedTrap, setSelectedTrap] = useState<string>("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isSequential, setIsSequential] = useState(false); // New Sequential state
 
   // Dynamic Taxonomy State (Nested Topics -> Subtopics)
   const [dynamicTaxonomy, setDynamicTaxonomy] = useState<Record<string, string[]>>({});
@@ -68,7 +70,7 @@ export default function EnhancedTestGenerator() {
     async function fetchDynamicTaxonomy() {
       setIsFetchingFilters(true);
       try {
-        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://192.168.0.113:8000";
+        const apiBaseUrl = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
         const response = await fetch(`${apiBaseUrl}/api/taxonomy?subject=${encodeURIComponent(subject)}`);
         
         if (!response.ok) {
@@ -111,7 +113,7 @@ export default function EnhancedTestGenerator() {
   // Compile current state into an object
   const getCurrentConfig = (name: string): TestConfig => ({
     name, subject, limit, timeLimit, minDifficulty, maxDifficulty, sortOrder, 
-    calcIntensity, questionType, selectedTopics, selectedSubTopics, selectedTrap
+    calcIntensity, questionType, selectedTopics, selectedSubTopics, selectedTrap, isSequential
   });
 
   const savePreset = (name: string) => {
@@ -134,6 +136,7 @@ export default function EnhancedTestGenerator() {
     setSelectedTopics(config.selectedTopics || []);
     setSelectedSubTopics(config.selectedSubTopics || []);
     setSelectedTrap(config.selectedTrap || "");
+    setIsSequential(config.isSequential ?? false);
   };
 
   // 2. SUBMIT HANDLER
@@ -153,6 +156,7 @@ export default function EnhancedTestGenerator() {
     if (selectedTopics.length > 0) queryParams.append("topics", selectedTopics.join(","));
     if (selectedSubTopics.length > 0) queryParams.append("sub_topics", selectedSubTopics.join(","));
     if (selectedTrap) queryParams.append("trap_type", selectedTrap);
+    if (isSequential) queryParams.append("sequential", "true");
 
     router.push(`/test-exam?${queryParams.toString()}`);
   };
@@ -332,7 +336,7 @@ export default function EnhancedTestGenerator() {
             >
               <span className="flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-gray-500" />
-                Advanced Settings (Sorting, Q.Type)
+                Advanced Settings (Sorting, Q.Type, Modifiers)
               </span>
               <span className="text-xs text-gray-400 font-mono">{showAdvanced ? "▲ HIDE" : "▼ EXPAND"}</span>
             </button>
@@ -343,7 +347,6 @@ export default function EnhancedTestGenerator() {
                   <label className="text-[11px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1"><ArrowDownUp className="w-3.5 h-3.5 text-green-600" /> Sort Difficulty</label>
                   <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} className="w-full text-xs p-2.5 rounded-lg bg-gray-50 border border-gray-200">
                     <option value="random">Shuffle (Random)</option>
-                    {/* 🚀 FIX: Updated values to perfectly match the FastAPI endpoint */}
                     <option value="difficulty_asc">Ascending (Easiest First)</option>
                     <option value="difficulty_desc">Descending (Hardest First)</option>
                   </select>
@@ -353,6 +356,23 @@ export default function EnhancedTestGenerator() {
                   <select value={questionType} onChange={(e) => setQuestionType(e.target.value)} className="w-full text-xs p-2.5 rounded-lg bg-gray-50 border border-gray-200">
                     <option value="">Mixed</option><option value="MCQ">Standard MCQ</option><option value="TITA">Type In The Answer</option>
                   </select>
+                </div>
+
+                {/* NEW: Strict Sequential Toggle */}
+                <div className="col-span-1 md:col-span-2 lg:col-span-4 mt-2 flex items-center justify-between p-4 border border-indigo-100 bg-indigo-50/40 rounded-xl">
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-700">Strict Sequential Mode</h4>
+                    <p className="text-xs text-slate-500">You must answer the current question to proceed. Disables jumping ahead.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsSequential(!isSequential)}
+                    className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
+                      isSequential ? 'bg-indigo-600' : 'bg-slate-300'
+                    }`}
+                  >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isSequential ? 'translate-x-6' : 'translate-x-1'}`} />
+                  </button>
                 </div>
               </div>
             )}

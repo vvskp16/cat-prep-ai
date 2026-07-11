@@ -103,11 +103,15 @@ function TestExamContent() {
 
   const timeLimitParam = searchParams.get('time_limit');
   const timerSeconds = timeLimitParam ? parseInt(timeLimitParam) * 60 : testPayload.length * 120;
+  
+  // Extract Sequential Flag
+  const isSequential = searchParams.get('sequential') === 'true';
 
   return (
     <ExamEngine 
       initialTestData={testPayload} 
-      initialTimeInSeconds={timerSeconds} 
+      initialTimeInSeconds={timerSeconds}
+      isSequential={isSequential} 
     />
   );
 }
