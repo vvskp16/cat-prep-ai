@@ -54,11 +54,11 @@
             }
         },
         {
-            "name": "Debug enrich cat papers",
+            "name": "Debug a file",
             "type": "debugpy",
             "python": "${workspaceFolder}/venv/Scripts/python.exe",
             "request": "launch",
-            "program": "${workspaceFolder}/enrich_extracted_cat_papers.py",
+            "program": "${workspaceFolder}/api.py",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}",
                 "ROOT_DIR": "${workspaceFolder}",

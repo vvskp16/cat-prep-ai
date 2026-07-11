@@ -448,6 +448,8 @@ class SearchRequest(BaseModel):
     min_difficulty_level: Optional[float] = Field(None, description="Minimum numerical difficulty boundary (inclusive)")
     max_difficulty_level: Optional[float] = Field(None, description="Maximum numerical difficulty boundary (inclusive)")
     
+    has_parent_context: Optional[str] = Field(None, description="Filter for questions that are part of a set/passage")
+
     limit: int = Field(10, description="The targeted base quantity of questions to retrieve")
 
 
@@ -472,7 +474,8 @@ async def search_questions(payload: SearchRequest):
             and_conditions.append({"question_type": payload.question_type})
         if payload.difficulty:
             and_conditions.append({"difficulty": payload.difficulty})
-
+        if payload.has_parent_context is not None:
+            and_conditions.append({"has_parent_context": payload.has_parent_context})
         # 2. Dynamic Range Queries for numerical difficulty metrics
         if payload.min_difficulty_level is not None:
             and_conditions.append({"difficulty_level": {"$gte": payload.min_difficulty_level}})
