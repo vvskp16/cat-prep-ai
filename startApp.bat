@@ -12,7 +12,7 @@ set OPENAI_API_KEY=your_actual_openai_api_key_here
 :: 2. Start the Python FastAPI Backend in a new dedicated window
 :: (This assumes you have a virtual environment named 'venv'. If not, remove "venv\Scripts\activate &&")
 echo [1/2] Booting FastAPI Backend on Port 8000...
-start "CAT Backend Server" cmd /k "venv\Scripts\activate && python api.py"
+start "CAT Backend Server" cmd /k "venv\Scripts\activate && python main.py"
 
 :: Wait 3 seconds to let the backend initialize ChromaDB before frontend hits it
 timeout /t 3 /nobreak >nul
