@@ -5,4 +5,6 @@ python -m venv venv
 
 pip install -r .\devops\requirements.txt
 
+.\dev_scripts\set_envvar.ps1
+
 Write-Host "Setup complete."
