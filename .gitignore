@@ -238,3 +238,6 @@ chroma_ready_docs.zip
 *.txt
 chroma_db_bkp
 cat-frontend/public/images_1/
+
+# Subscription exports can contain private study content.
+ims_exports/
